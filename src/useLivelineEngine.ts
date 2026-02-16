@@ -711,7 +711,9 @@ export function useLivelineEngine(
     // --- Live value display (DOM element, updated by ref — no React re-renders) ---
     const valEl = cfg.valueDisplayRef?.current
     if (valEl) {
-      valEl.textContent = cfg.formatValue(smoothValue)
+      // When momentum colour is on, strip sign — colour already communicates direction
+      const displayVal = cfg.valueMomentumColor ? Math.abs(smoothValue) : smoothValue
+      valEl.textContent = cfg.formatValue(displayVal)
       if (cfg.valueMomentumColor) {
         const mc = momentum === 'up' ? '#22c55e' : momentum === 'down' ? '#ef4444' : ''
         if (mc) valEl.style.color = mc
