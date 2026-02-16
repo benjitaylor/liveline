@@ -327,9 +327,9 @@ function updateBadgeDOM(
 
   // Badge styling
   if (cfg.badgeVariant === 'minimal') {
-    badge.path.setAttribute('fill', '#ffffff')
-    badge.text.style.color = '#888'
-    badge.container.style.filter = 'drop-shadow(0 1px 4px rgba(0,0,0,0.12))'
+    badge.path.setAttribute('fill', cfg.palette.badgeOuterBg)
+    badge.text.style.color = cfg.palette.tooltipText
+    badge.container.style.filter = `drop-shadow(0 1px 4px ${cfg.palette.badgeOuterShadow})`
   } else {
     badge.container.style.filter = ''
     badge.text.style.color = '#fff'
