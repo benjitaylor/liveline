@@ -168,9 +168,8 @@ The component fills its parent container. Set a height on the parent. Pass `data
 
 No CSS imports. No external dependencies beyond React.
 
-## Build
+## License
 
-```bash
-pnpm build    # ESM + CJS + .d.ts in dist/
-pnpm test     # Unit tests
-```
+© 2026 Benji Taylor
+
+Licensed under MIT

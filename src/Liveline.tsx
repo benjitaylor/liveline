@@ -78,7 +78,9 @@ export function Liveline({
     : undefined
 
   // Window buttons state
-  const [activeWindowSecs, setActiveWindowSecs] = useState(windowSecs)
+  const [activeWindowSecs, setActiveWindowSecs] = useState(
+    windows && windows.length > 0 ? windows[0].secs : windowSecs
+  )
   const effectiveWindowSecs = windows ? activeWindowSecs : windowSecs
 
   // Measure active window button for sliding indicator
