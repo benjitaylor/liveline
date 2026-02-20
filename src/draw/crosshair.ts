@@ -16,7 +16,7 @@ export function drawCrosshair(
 ) {
   if (scrubOpacity < 0.01) return
 
-  const { w, h, pad, toY } = layout
+  const { h, pad, toY } = layout
   const y = toY(hoverValue)
 
   // Vertical line (solid, like Kalshi)
@@ -62,7 +62,7 @@ export function drawCrosshair(
   // Right edge of tooltip text aligns with the right edge of the live dot circle
   let tx = hoverX - totalW / 2
   const minX = pad.left + 4
-  const dotRightEdge = liveDotX != null ? liveDotX + 7 : w - pad.right
+  const dotRightEdge = liveDotX != null ? liveDotX + 7 : layout.w - pad.right
   const maxX = dotRightEdge - totalW
   if (tx < minX) tx = minX
   if (tx > maxX) tx = maxX

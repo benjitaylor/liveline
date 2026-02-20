@@ -11,7 +11,7 @@ import { drawParticles, spawnOnSwing, type ParticleState } from './particles'
 // Constants
 const SHAKE_DECAY_RATE = 0.002
 const SHAKE_MIN_AMPLITUDE = 0.2
-const FADE_EDGE_WIDTH = 40
+export const FADE_EDGE_WIDTH = 40
 const CROSSHAIR_FADE_MIN_PX = 5
 
 export interface ArrowState { up: number; down: number }
@@ -122,16 +122,9 @@ export function drawFrame(
     ctx.restore()
   }
 
-  // Pause: no visual dimming, chart stays full color.
-  // Badge hides + pulse suppresses separately.
-  const pauseDim = 1
-
-  // 3. Line + fill (with scrub dimming + reveal morphing + pause dim)
+  // 3. Line + fill (with scrub dimming + reveal morphing)
   const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
-  ctx.save()
-  if (pauseDim < 1) ctx.globalAlpha = pauseDim
   const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
-  ctx.restore()
 
   // 4. Time axis — same timing as grid
   {
@@ -157,13 +150,13 @@ export function drawFrame(
         : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
     }
 
-    // Dot appears once shape is recognizable (reveal > 0.3), dims with pause
-    const dotAlpha = (reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7) * pauseDim
+    // Dot appears once shape is recognizable (reveal > 0.3)
+    const dotAlpha = reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7
     const showPulse = opts.showPulse && reveal > 0.6 && pause < 0.5
     if (dotAlpha > 0.01) {
       ctx.save()
       if (dotAlpha < 1) ctx.globalAlpha = dotAlpha
-      drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, dotScrub)
+      drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, dotScrub, opts.now_ms)
       ctx.restore()
     }
 
@@ -176,7 +169,7 @@ export function drawFrame(
         if (arrowAlpha < 1) ctx.globalAlpha = arrowAlpha
         drawArrows(
           ctx, lastPt[0], lastPt[1],
-          opts.momentum, palette, opts.arrowState, opts.dt,
+          opts.momentum, palette, opts.arrowState, opts.dt, opts.now_ms,
         )
         ctx.restore()
       }

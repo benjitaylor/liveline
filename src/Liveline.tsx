@@ -1,4 +1,4 @@
-import { useRef, useState, useLayoutEffect } from 'react'
+import { useRef, useState, useLayoutEffect, useMemo } from 'react'
 import type { LivelineProps, Momentum, DegenOptions } from './types'
 import { resolveTheme } from './theme'
 import { useLivelineEngine } from './useLivelineEngine'
@@ -56,7 +56,7 @@ export function Liveline({
   const windowBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
 
-  const palette = resolveTheme(color, theme)
+  const palette = useMemo(() => resolveTheme(color, theme), [color, theme])
   const isDark = theme === 'dark'
 
   // Resolve momentum prop: boolean enables auto-detect, string overrides

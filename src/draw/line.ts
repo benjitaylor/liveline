@@ -2,17 +2,33 @@ import type { LivelinePalette, ChartLayout, LivelinePoint } from '../types'
 import { drawSpline } from '../math/spline'
 import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
 
-/** Lerp between two CSS colors using the canvas normalisation trick. */
-function blendColor(ctx: CanvasRenderingContext2D, c1: string, c2: string, t: number): string {
+/** Parse a CSS color to [r, g, b, a]. Handles hex, rgb(), rgba(). */
+function parseRgba(color: string): [number, number, number, number] {
+  const hex = color.match(/^#([0-9a-f]{3,8})$/i)
+  if (hex) {
+    let h = hex[1]
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16), 1]
+  }
+  const rgba = color.match(/rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)/)
+  if (rgba) return [+rgba[1], +rgba[2], +rgba[3], +rgba[4]]
+  const rgb = color.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (rgb) return [+rgb[1], +rgb[2], +rgb[3], 1]
+  return [128, 128, 128, 1]
+}
+
+/** Lerp between two CSS colors including alpha. Handles hex, rgb(), rgba(). */
+function blendColor(c1: string, c2: string, t: number): string {
   if (t <= 0) return c1
   if (t >= 1) return c2
-  // Canvas normalises any CSS color to #rrggbb when assigned to fillStyle
-  ctx.fillStyle = c1; const a = ctx.fillStyle
-  ctx.fillStyle = c2; const b = ctx.fillStyle
-  const r = Math.round(parseInt(a.slice(1, 3), 16) * (1 - t) + parseInt(b.slice(1, 3), 16) * t)
-  const g = Math.round(parseInt(a.slice(3, 5), 16) * (1 - t) + parseInt(b.slice(3, 5), 16) * t)
-  const bl = Math.round(parseInt(a.slice(5, 7), 16) * (1 - t) + parseInt(b.slice(5, 7), 16) * t)
-  return `rgb(${r},${g},${bl})`
+  const [r1, g1, b1, a1] = parseRgba(c1)
+  const [r2, g2, b2, a2] = parseRgba(c2)
+  const r = Math.round(r1 + (r2 - r1) * t)
+  const g = Math.round(g1 + (g2 - g1) * t)
+  const b = Math.round(b1 + (b2 - b1) * t)
+  const a = a1 + (a2 - a1) * t
+  if (a >= 0.995) return `rgb(${r},${g},${b})`
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`
 }
 
 /** Draw the fill gradient + stroke line for a set of points. */
@@ -69,7 +85,7 @@ export function drawLine(
   chartReveal: number = 1,
   now_ms: number = 0,
 ) {
-  const { w, h, pad, toX, toY, chartW, chartH } = layout
+  const { h, pad, toX, toY, chartW, chartH } = layout
 
   // Build screen-space points: all historical data stays stable,
   // but the LAST data point uses smoothValue for its Y (so big jumps
@@ -126,7 +142,7 @@ export function drawLine(
   // Blend line color: grey at reveal=0, accent by reveal≈0.3.
   // Front-loaded so the color shifts early while alpha is still low.
   const strokeColor = chartReveal < 1
-    ? blendColor(ctx, palette.gridLabel, palette.line, Math.min(1, chartReveal * 3))
+    ? blendColor(palette.gridLabel, palette.line, Math.min(1, chartReveal * 3))
     : undefined
 
   const isScrubbing = scrubX !== null

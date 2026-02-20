@@ -1,24 +1,10 @@
 import type { Momentum, LivelinePalette } from '../types'
 import type { ArrowState } from './index'
+import { parseColorRgb } from '../theme'
 import { lerp } from '../math/lerp'
 
 const PULSE_INTERVAL = 1500
 const PULSE_DURATION = 900
-
-/** Parse a CSS color (hex or rgb()) to [r, g, b]. Returns null on failure. */
-function parseColor(color: string): [number, number, number] | null {
-  // hex
-  const hex = color.match(/^#([0-9a-f]{3,8})$/i)
-  if (hex) {
-    let h = hex[1]
-    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]
-    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]
-  }
-  // rgb/rgba
-  const rgb = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
-  if (rgb) return [+rgb[1], +rgb[2], +rgb[3]]
-  return null
-}
 
 function lerpColor(a: [number,number,number], b: [number,number,number], t: number): string {
   const r = Math.round(a[0] + (b[0] - a[0]) * t)
@@ -35,13 +21,14 @@ export function drawDot(
   palette: LivelinePalette,
   pulse: boolean = true,
   scrubAmount: number = 0,
+  now_ms: number = performance.now(),
 ): void {
   const baseAlpha = ctx.globalAlpha
   const dim = scrubAmount * 0.7
 
   // Expanding ring pulse (accent colored, every 1.5s) — suppress when dimmed
   if (pulse && dim < 0.3) {
-    const t = (Date.now() % PULSE_INTERVAL) / PULSE_DURATION
+    const t = (now_ms % PULSE_INTERVAL) / PULSE_DURATION
     if (t < 1) {
       const radius = 9 + t * 12
       const pulseAlpha = 0.35 * (1 - t) * (1 - dim * 3)
@@ -55,7 +42,7 @@ export function drawDot(
   }
 
   // Outer bg color for blending
-  const outerRgb = parseColor(palette.badgeOuterBg) ?? [255, 255, 255]
+  const outerRgb = parseColorRgb(palette.badgeOuterBg)
 
   // White outer circle with subtle shadow
   ctx.save()
@@ -74,7 +61,7 @@ export function drawDot(
   ctx.beginPath()
   ctx.arc(x, y, 3.5, 0, Math.PI * 2)
   if (dim > 0.01) {
-    const lineRgb = parseColor(palette.line) ?? [100, 100, 255]
+    const lineRgb = parseColorRgb(palette.line)
     ctx.fillStyle = lerpColor(lineRgb, outerRgb, dim)
   } else {
     ctx.fillStyle = palette.line
@@ -91,6 +78,7 @@ export function drawArrows(
   palette: LivelinePalette,
   arrows: ArrowState,
   dt: number,
+  now_ms: number = performance.now(),
 ): void {
   const baseAlpha = ctx.globalAlpha
 
@@ -112,7 +100,7 @@ export function drawArrows(
   // Draw chevrons — directional cascade animation.
   // UP: bottom arrow fires first, then top (energy moves upward).
   // DOWN: top arrow fires first, then bottom.
-  const cycle = (Date.now() % 1400) / 1400
+  const cycle = (now_ms % 1400) / 1400
   const drawChevrons = (dir: -1 | 1, opacity: number) => {
     if (opacity < 0.01) return
     const baseX = x + 19

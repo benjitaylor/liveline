@@ -5,7 +5,7 @@ import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
 import { interpolateAtTime } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
-import { drawFrame } from './draw'
+import { drawFrame, FADE_EDGE_WIDTH } from './draw'
 import { drawLoading } from './draw/loading'
 import { drawEmpty } from './draw/empty'
 import { createOrderbookState } from './draw/orderbook'
@@ -73,7 +73,6 @@ const PAUSE_PROGRESS_SPEED = 0.12
 const PAUSE_CATCHUP_SPEED = 0.08
 const PAUSE_CATCHUP_SPEED_FAST = 0.22
 const LOADING_ALPHA_SPEED = 0.14
-const FADE_EDGE_WIDTH = 40
 
 // --- Extracted helper functions (pure computation, called inside draw loop) ---
 
@@ -395,7 +394,7 @@ export function useLivelineEngine(
   })
   const arrowStateRef = useRef({ up: 0, down: 0 })
   const gridStateRef = useRef({ interval: 0, labels: new Map<number, number>() }) // labels: key=Math.round(val*1000), value=alpha
-  const timeAxisStateRef = useRef({ labels: new Map() })
+  const timeAxisStateRef = useRef({ labels: new Map<number, { alpha: number; text: string }>() })
   const orderbookStateRef = useRef(createOrderbookState())
   const particleStateRef = useRef(createParticleState())
   const shakeStateRef = useRef(createShakeState())
@@ -403,6 +402,7 @@ export function useLivelineEngine(
   const badgeYRef = useRef<number | null>(null) // lerped badge Y, null = uninited
   const reducedMotionRef = useRef(false)
   const sizeRef = useRef({ w: 0, h: 0 })
+  const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const rafRef = useRef(0)
   const lastFrameRef = useRef(0)
 
@@ -582,7 +582,11 @@ export function useLivelineEngine(
       canvas.style.height = `${h}px`
     }
 
-    const ctx = canvas.getContext('2d')
+    let ctx = ctxRef.current
+    if (!ctx || ctx.canvas !== canvas) {
+      ctx = canvas.getContext('2d')
+      ctxRef.current = ctx
+    }
     if (!ctx) {
       rafRef.current = requestAnimationFrame(draw)
       return

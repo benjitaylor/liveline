@@ -13,7 +13,7 @@ export function drawTimeAxis(
   layout: ChartLayout,
   palette: LivelinePalette,
   windowSecs: number,
-  _targetWindowSecs: number,
+  targetWindowSecs: number,
   formatTime: (t: number) => string,
   state: TimeAxisState,
   dt: number,
@@ -38,9 +38,9 @@ export function drawTimeAxis(
   // Interval fully derived from target window — no dependency on the
   // interpolating display. Prevents a one-frame flicker when the transition
   // ends and windowSecs snaps to targetWindowSecs.
-  const targetPxPerSec = chartW / _targetWindowSecs
-  let interval = niceTimeInterval(_targetWindowSecs)
-  while (interval * targetPxPerSec < 60 && interval < _targetWindowSecs) {
+  const targetPxPerSec = chartW / targetWindowSecs
+  let interval = niceTimeInterval(targetWindowSecs)
+  while (interval * targetPxPerSec < 60 && interval < targetWindowSecs) {
     interval *= 2
   }
 

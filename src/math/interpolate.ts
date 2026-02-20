@@ -23,6 +23,8 @@ export function interpolateAtTime(
 
   const p1 = points[lo]
   const p2 = points[hi]
-  const t = (time - p1.time) / (p2.time - p1.time)
+  const dt = p2.time - p1.time
+  if (dt === 0) return p1.value
+  const t = (time - p1.time) / dt
   return p1.value + (p2.value - p1.value) * t
 }

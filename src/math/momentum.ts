@@ -8,22 +8,23 @@ import type { Momentum, LivelinePoint } from '../types'
 export function detectMomentum(points: LivelinePoint[], lookback = 20): Momentum {
   if (points.length < 5) return 'flat'
 
-  const recent = points.slice(-lookback)
+  const start = Math.max(0, points.length - lookback)
 
   // Range of the full lookback for threshold calculation
   let min = Infinity
   let max = -Infinity
-  for (const p of recent) {
-    if (p.value < min) min = p.value
-    if (p.value > max) max = p.value
+  for (let i = start; i < points.length; i++) {
+    const v = points[i].value
+    if (v < min) min = v
+    if (v > max) max = v
   }
   const range = max - min
   if (range === 0) return 'flat'
 
   // Only look at the last 5 points for active velocity
-  const tail = recent.slice(-5)
-  const first = tail[0].value
-  const last = tail[tail.length - 1].value
+  const tailStart = Math.max(start, points.length - 5)
+  const first = points[tailStart].value
+  const last = points[points.length - 1].value
   const delta = last - first
 
   const threshold = range * 0.12

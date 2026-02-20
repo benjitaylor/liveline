@@ -1,12 +1,16 @@
 import type { ThemeMode, LivelinePalette } from './types'
 
-/**
- * Parse a hex color to RGB components.
- */
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace('#', '')
-  const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+/** Parse any CSS color string to [r, g, b]. Handles hex (#rgb, #rrggbb), rgb(), rgba(). */
+export function parseColorRgb(color: string): [number, number, number] {
+  const hex = color.match(/^#([0-9a-f]{3,8})$/i)
+  if (hex) {
+    let h = hex[1]
+    if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2]
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)]
+  }
+  const rgb = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/)
+  if (rgb) return [+rgb[1], +rgb[2], +rgb[3]]
+  return [128, 128, 128]
 }
 
 function rgba(r: number, g: number, b: number, a: number): string {
@@ -18,7 +22,7 @@ function rgba(r: number, g: number, b: number, a: number): string {
  * Momentum colors are always semantic green/red regardless of accent.
  */
 export function resolveTheme(color: string, mode: ThemeMode): LivelinePalette {
-  const [r, g, b] = hexToRgb(color)
+  const [r, g, b] = parseColorRgb(color)
   const isDark = mode === 'dark'
 
   return {
