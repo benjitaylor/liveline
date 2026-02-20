@@ -122,8 +122,9 @@ export function drawFrame(
     ctx.restore()
   }
 
-  // Pause dimming — data elements (line, fill, dot) fade to 50%
-  const pauseDim = 1 - pause * 0.5
+  // Pause: no visual dimming, chart stays full color.
+  // Badge hides + pulse suppresses separately.
+  const pauseDim = 1
 
   // 3. Line + fill (with scrub dimming + reveal morphing + pause dim)
   const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
