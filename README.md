@@ -66,6 +66,15 @@ The component fills its parent container. Set a height on the parent. Pass `data
 | `valueMomentumColor` | `boolean` | `false` | Color the value text green/red by momentum |
 | `degen` | `boolean \| DegenOptions` | `false` | Burst particles + chart shake on momentum swings |
 
+**State**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `loading` | `boolean` | `false` | Breathing line animation — use while waiting for data |
+| `paused` | `boolean` | `false` | Smoothly freeze chart scrolling; resume catches up to real time |
+
+When `loading` flips to `false` with data present, the flat loading line morphs into the actual chart shape (line, fill, grid, and badge all animate in). When `data` is empty and `loading` is `false`, a minimal "No data" empty state is shown.
+
 **Time**
 
 | Prop | Type | Default | Description |
@@ -140,6 +149,17 @@ The component fills its parent container. Set a height on the parent. Pass `data
     { label: '5m', secs: 300 },
   ]}
   onWindowChange={(secs) => console.log('window:', secs)}
+/>
+```
+
+### Loading + pause
+
+```tsx
+<Liveline
+  data={data}
+  value={value}
+  loading={isConnecting}
+  paused={!isTabVisible}
 />
 ```
 
