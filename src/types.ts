@@ -62,6 +62,8 @@ export interface LivelineProps {
   badge?: boolean
   momentum?: boolean | Momentum
   fill?: boolean
+  loading?: boolean         // Show loading animation — breathing line (default: false)
+  paused?: boolean          // Pause chart scrolling (default: false)
   scrub?: boolean           // Enable crosshair scrubbing on hover (default: true)
   exaggerate?: boolean      // Tight Y-axis range — small moves fill chart height (default: false)
   showValue?: boolean       // Show live value as DOM text overlay (default: false)

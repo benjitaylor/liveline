@@ -91,6 +91,7 @@ export function drawTimeAxis(
   }
 
   // Draw
+  const baseAlpha = ctx.globalAlpha
   const lineY = h - pad.bottom
   const tickLen = 5
 
@@ -136,7 +137,7 @@ export function drawTimeAxis(
 
   for (const label of drawn) {
     ctx.save()
-    ctx.globalAlpha = label.alpha
+    ctx.globalAlpha = baseAlpha * label.alpha
 
     ctx.strokeStyle = palette.gridLine
     ctx.lineWidth = 1

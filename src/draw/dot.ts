@@ -36,6 +36,7 @@ export function drawDot(
   pulse: boolean = true,
   scrubAmount: number = 0,
 ): void {
+  const baseAlpha = ctx.globalAlpha
   const dim = scrubAmount * 0.7
 
   // Expanding ring pulse (accent colored, every 1.5s) — suppress when dimmed
@@ -48,7 +49,7 @@ export function drawDot(
       ctx.arc(x, y, radius, 0, Math.PI * 2)
       ctx.strokeStyle = palette.line
       ctx.lineWidth = 1.5
-      ctx.globalAlpha = pulseAlpha
+      ctx.globalAlpha = baseAlpha * pulseAlpha
       ctx.stroke()
     }
   }
@@ -56,9 +57,9 @@ export function drawDot(
   // Outer bg color for blending
   const outerRgb = parseColor(palette.badgeOuterBg) ?? [255, 255, 255]
 
-  // White outer circle with subtle shadow — always fully opaque
+  // White outer circle with subtle shadow
   ctx.save()
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = baseAlpha
   ctx.shadowColor = palette.badgeOuterShadow
   ctx.shadowBlur = 6 * (1 - dim)
   ctx.shadowOffsetY = 1
@@ -69,7 +70,7 @@ export function drawDot(
   ctx.restore()
 
   // Colored inner dot — blend toward outer bg when dimmed
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = baseAlpha
   ctx.beginPath()
   ctx.arc(x, y, 3.5, 0, Math.PI * 2)
   if (dim > 0.01) {
@@ -91,6 +92,8 @@ export function drawArrows(
   arrows: ArrowState,
   dt: number,
 ): void {
+  const baseAlpha = ctx.globalAlpha
+
   // Update arrow opacities — fade out old direction fully before fading in new
   const upTarget = momentum === 'up' ? 1 : 0
   const downTarget = momentum === 'down' ? 1 : 0
@@ -132,7 +135,7 @@ export function drawArrows(
         : 0
       const pulse = 0.3 + 0.7 * wave
 
-      ctx.globalAlpha = opacity * pulse
+      ctx.globalAlpha = baseAlpha * opacity * pulse
 
       const nudge = dir === -1 ? -3 : 3
       const cy = baseY + dir * (i * 8 - 4) + nudge
@@ -149,5 +152,5 @@ export function drawArrows(
   drawChevrons(-1, arrows.up)
   drawChevrons(1, arrows.down)
 
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = baseAlpha
 }

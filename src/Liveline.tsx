@@ -24,6 +24,8 @@ export function Liveline({
   momentum = true,
   fill = true,
   scrub = true,
+  loading = false,
+  paused = false,
   exaggerate = false,
   degen: degenProp,
   badgeTail = true,
@@ -127,6 +129,8 @@ export function Liveline({
     valueMomentumColor,
     valueDisplayRef: showValue ? valueDisplayRef : undefined,
     orderbookData: orderbook,
+    loading,
+    paused,
   })
 
   const cursorStyle = scrub ? cursor : 'default'

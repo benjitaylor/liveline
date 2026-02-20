@@ -6,6 +6,8 @@ import { detectMomentum } from './math/momentum'
 import { interpolateAtTime } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
 import { drawFrame } from './draw'
+import { drawLoading } from './draw/loading'
+import { drawEmpty } from './draw/empty'
 import { createOrderbookState } from './draw/orderbook'
 import { createParticleState } from './draw/particles'
 import { createShakeState } from './draw'
@@ -38,6 +40,8 @@ interface EngineConfig {
   valueMomentumColor: boolean
   valueDisplayRef?: React.RefObject<HTMLSpanElement | null>
   orderbookData?: OrderbookData
+  loading?: boolean
+  paused?: boolean
 }
 
 interface BadgeEls {
@@ -64,6 +68,12 @@ const VALUE_SNAP_THRESHOLD = 0.001
 const ADAPTIVE_SPEED_BOOST = 0.2
 const MOMENTUM_GREEN: [number, number, number] = [34, 197, 94]
 const MOMENTUM_RED: [number, number, number] = [239, 68, 68]
+const CHART_REVEAL_SPEED = 0.14
+const PAUSE_PROGRESS_SPEED = 0.12
+const PAUSE_CATCHUP_SPEED = 0.08
+const PAUSE_CATCHUP_SPEED_FAST = 0.22
+const LOADING_ALPHA_SPEED = 0.14
+const FADE_EDGE_WIDTH = 40
 
 // --- Extracted helper functions (pure computation, called inside draw loop) ---
 
@@ -274,13 +284,16 @@ function updateBadgeDOM(
   noMotion: boolean,
   ctx: CanvasRenderingContext2D,
   dt: number,
+  chartReveal: number = 1,
 ): number | null /* updated badgeY */ {
-  if (!cfg.showBadge) {
+  if (!cfg.showBadge || chartReveal < 0.25) {
     badge.container.style.display = 'none'
     return badgeY
   }
 
   badge.container.style.display = ''
+  const badgeOpacity = chartReveal < 0.5 ? (chartReveal - 0.25) / 0.25 : 1
+  badge.container.style.opacity = badgeOpacity < 1 ? String(badgeOpacity) : ''
   const { w, h, pad } = layout
 
   const text = cfg.formatValue(smoothValue)
@@ -313,8 +326,12 @@ function updateBadgeDOM(
     ? badgeSvgPath(pillW, pillH, BADGE_TAIL_LEN, BADGE_TAIL_SPREAD)
     : badgePillOnly(pillW, pillH))
 
-  // Badge Y lerp — decoupled from range/value math
-  const targetBadgeY = Math.max(pad.top, Math.min(h - pad.bottom, layout.toY(smoothValue)))
+  // Badge Y lerp — decoupled from range/value math, morphed during reveal
+  const centerY = pad.top + layout.chartH / 2
+  const realTargetY = Math.max(pad.top, Math.min(h - pad.bottom, layout.toY(smoothValue)))
+  const targetBadgeY = chartReveal < 1
+    ? centerY + (realTargetY - centerY) * chartReveal
+    : realTargetY
   if (badgeY === null || noMotion) {
     badgeY = targetBadgeY
   } else {
@@ -396,6 +413,24 @@ export function useLivelineEngine(
   const hoverXRef = useRef<number | null>(null)
   const scrubAmountRef = useRef(0) // 0 = not scrubbing, 1 = fully scrubbing
   const lastHoverRef = useRef<{ x: number; value: number; time: number } | null>(null)
+
+  // Reveal state (loading → chart morph)
+  const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
+
+  // Pause state
+  const pauseProgressRef = useRef(0) // 0 = playing, 1 = fully paused
+  const timeDebtRef = useRef(0) // accumulated seconds behind real time
+
+  // Data stash for reverse morph (chart → flat line when data disappears)
+  const lastDataRef = useRef<LivelinePoint[]>([])
+  const frozenNowRef = useRef(0)
+
+  // Pause data snapshot — freeze visible data when pausing to prevent
+  // consumer-side pruning from eroding the left edge of the line
+  const pausedDataRef = useRef<LivelinePoint[] | null>(null)
+
+  // Loading ↔ empty crossfade
+  const loadingAlphaRef = useRef(config.loading ? 1 : 0)
 
   // Create badge DOM elements (once, appended to container)
   useEffect(() => {
@@ -558,27 +593,114 @@ export function useLivelineEngine(
     // Reduced motion: use speed=1 to skip all lerps (instant snap)
     const noMotion = reducedMotionRef.current
 
-    const points = cfg.data
-    if (points.length < 2) {
+    // Snapshot data when pause starts, use snapshot while paused
+    // so consumer-side pruning can't erode the visible line
+    if (cfg.paused && pausedDataRef.current === null && cfg.data.length >= 2) {
+      pausedDataRef.current = cfg.data.slice()
+    }
+    if (!cfg.paused) {
+      pausedDataRef.current = null
+    }
+
+    const points = pausedDataRef.current ?? cfg.data
+    const hasData = points.length >= 2
+    const pad = cfg.padding
+    const chartH = h - pad.top - pad.bottom
+
+    // --- Pause time management ---
+    const pauseTarget = cfg.paused ? 1 : 0
+    pauseProgressRef.current = noMotion
+      ? pauseTarget
+      : lerp(pauseProgressRef.current, pauseTarget, PAUSE_PROGRESS_SPEED, dt)
+    if (pauseProgressRef.current < 0.005) pauseProgressRef.current = 0
+    if (pauseProgressRef.current > 0.995) pauseProgressRef.current = 1
+    const pauseProgress = pauseProgressRef.current
+    const pausedDt = dt * (1 - pauseProgress)
+
+    const realDtSec = dt / 1000
+    timeDebtRef.current += realDtSec * pauseProgress
+    // Only drain time debt when unpausing — during pausing, let it
+    // accumulate freely so the chart decelerates smoothly
+    if (!cfg.paused && timeDebtRef.current > 0.001) {
+      const catchUpSpeed = timeDebtRef.current > 10
+        ? PAUSE_CATCHUP_SPEED_FAST
+        : PAUSE_CATCHUP_SPEED
+      timeDebtRef.current = lerp(timeDebtRef.current, 0, catchUpSpeed, dt)
+      if (timeDebtRef.current < 0.01) timeDebtRef.current = 0
+    }
+
+    // --- Loading alpha (loading ↔ empty crossfade) ---
+    const loadingTarget = cfg.loading ? 1 : 0
+    loadingAlphaRef.current = noMotion
+      ? loadingTarget
+      : lerp(loadingAlphaRef.current, loadingTarget, LOADING_ALPHA_SPEED, dt)
+    if (loadingAlphaRef.current < 0.01) loadingAlphaRef.current = 0
+    if (loadingAlphaRef.current > 0.99) loadingAlphaRef.current = 1
+    const loadingAlpha = loadingAlphaRef.current
+
+    // --- Chart reveal (loading/empty → data morph) ---
+    const revealTarget = (!cfg.loading && hasData) ? 1 : 0
+    chartRevealRef.current = noMotion
+      ? revealTarget
+      : lerp(chartRevealRef.current, revealTarget, CHART_REVEAL_SPEED, dt)
+    if (Math.abs(chartRevealRef.current - revealTarget) < 0.005) {
+      chartRevealRef.current = revealTarget
+    }
+    const chartReveal = chartRevealRef.current
+
+    // Data stash for reverse morph — keep drawing chart while it morphs back
+    // to the squiggly shape (identical to loading/empty line at reveal=0)
+    const useStash = !hasData && chartReveal > 0.005 && lastDataRef.current.length >= 2
+    if (hasData) {
+      lastDataRef.current = points
+    }
+
+    if (!hasData && !useStash) {
+      // No chart pipeline — draw loading or empty as the sole visual.
+      // Loading is ONLY drawn here (never behind the chart) so there's
+      // always ONE line on screen, never two overlapping.
+      if (loadingAlpha > 0.01) {
+        drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha)
+      }
+      if ((1 - loadingAlpha) > 0.01) {
+        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms)
+      }
+      // Left-edge fade
+      ctx.save()
+      ctx.globalCompositeOperation = 'destination-out'
+      const fadeGrad = ctx.createLinearGradient(pad.left, 0, pad.left + FADE_EDGE_WIDTH, 0)
+      fadeGrad.addColorStop(0, 'rgba(0, 0, 0, 1)')
+      fadeGrad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.fillStyle = fadeGrad
+      ctx.fillRect(0, 0, pad.left + FADE_EDGE_WIDTH, h)
+      ctx.restore()
+
       if (badgeRef.current) badgeRef.current.container.style.display = 'none'
       rafRef.current = requestAnimationFrame(draw)
       return
     }
 
-    // Adaptive speed + smooth value
+    const effectivePoints = useStash ? lastDataRef.current : points
+
+    // Adaptive speed + smooth value (freeze lerp when using stashed data)
     const adaptiveSpeed = computeAdaptiveSpeed(
       cfg.value, displayValueRef.current,
       displayMinRef.current, displayMaxRef.current,
       cfg.lerpSpeed, noMotion,
     )
-    displayValueRef.current = lerp(displayValueRef.current, cfg.value, adaptiveSpeed, dt)
-    const prevRange = displayMaxRef.current - displayMinRef.current || 1
-    if (Math.abs(displayValueRef.current - cfg.value) < prevRange * VALUE_SNAP_THRESHOLD) {
-      displayValueRef.current = cfg.value
+    if (!useStash) {
+      displayValueRef.current = lerp(displayValueRef.current, cfg.value, adaptiveSpeed, pausedDt)
+      // Skip snap when pausing — cfg.value keeps changing from the consumer,
+      // so the snap would cause visible jumps in a supposedly frozen chart
+      if (pauseProgress < 0.5) {
+        const prevRange = displayMaxRef.current - displayMinRef.current || 1
+        if (Math.abs(displayValueRef.current - cfg.value) < prevRange * VALUE_SNAP_THRESHOLD) {
+          displayValueRef.current = cfg.value
+        }
+      }
     }
     const smoothValue = displayValueRef.current
 
-    const pad = cfg.padding
     const chartW = w - pad.left - pad.right
 
     // Dynamic buffer: when momentum arrows + badge are both on, ensure enough
@@ -591,11 +713,12 @@ export function useLivelineEngine(
 
     // Window transition
     const transition = windowTransitionRef.current
-    const now = Date.now() / 1000
+    if (hasData) frozenNowRef.current = Date.now() / 1000 - timeDebtRef.current
+    const now = useStash ? frozenNowRef.current : Date.now() / 1000 - timeDebtRef.current
     const windowResult = updateWindowTransition(
       cfg, transition, displayWindowRef.current,
       displayMinRef.current, displayMaxRef.current,
-      noMotion, now_ms, now, points, smoothValue, buffer,
+      noMotion, now_ms, now, effectivePoints, smoothValue, buffer,
     )
     displayWindowRef.current = windowResult.windowSecs
     const windowSecs = windowResult.windowSecs
@@ -604,10 +727,12 @@ export function useLivelineEngine(
     const rightEdge = now + windowSecs * buffer
     const leftEdge = rightEdge - windowSecs
 
-    // Filter visible points
+    // Filter visible points — when pausing, contract right edge to `now`
+    // so new data (with real-time timestamps) can't appear past the live dot
+    const filterRight = rightEdge - (rightEdge - now) * pauseProgress
     const visible: LivelinePoint[] = []
-    for (const p of points) {
-      if (p.time >= leftEdge - 2 && p.time <= rightEdge) {
+    for (const p of effectivePoints) {
+      if (p.time >= leftEdge - 2 && p.time <= filterRight) {
         visible.push(p)
       }
     }
@@ -617,7 +742,6 @@ export function useLivelineEngine(
       rafRef.current = requestAnimationFrame(draw)
       return
     }
-    const chartH = h - pad.top - pad.bottom
 
     // Compute + smooth Y range
     const computedRange = computeRange(visible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate)
@@ -627,7 +751,7 @@ export function useLivelineEngine(
       targetMinRef.current, targetMaxRef.current,
       displayMinRef.current, displayMaxRef.current,
       isWindowTransitioning, windowTransProgress, transition,
-      adaptiveSpeed, chartH, dt,
+      adaptiveSpeed, chartH, pausedDt,
     )
     rangeInitedRef.current = rangeResult.rangeInited
     targetMinRef.current = rangeResult.targetMin
@@ -696,7 +820,21 @@ export function useLivelineEngine(
       particleOptions: cfg.degenOptions,
       swingMagnitude,
       shakeState: cfg.degenOptions ? shakeStateRef.current : undefined,
+      chartReveal,
+      pauseProgress,
+      now_ms,
     })
+
+    // During morph (chart ↔ empty), overlay the gradient gap + text on
+    // top of the morphing chart line. skipLine=true avoids double-drawing
+    // the squiggly. The gap fades in smoothly as chartReveal drops.
+    const bgAlpha = 1 - chartReveal
+    if (bgAlpha > 0.01 && revealTarget === 0 && !cfg.loading) {
+      const bgEmptyAlpha = (1 - loadingAlpha) * bgAlpha
+      if (bgEmptyAlpha > 0.01) {
+        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true)
+      }
+    }
 
     // Badge (DOM element, floats above container)
     const badge = badgeRef.current
@@ -704,8 +842,14 @@ export function useLivelineEngine(
       badgeYRef.current = updateBadgeDOM(
         badge, cfg, smoothValue, layout, momentum,
         badgeYRef.current, badgeColorRef.current,
-        isWindowTransitioning, noMotion, ctx, dt,
+        isWindowTransitioning, noMotion, ctx, pausedDt,
+        chartReveal,
       )
+      // Hide badge during pause — fully fades out as pauseProgress → 1
+      if (pauseProgress > 0.01 && badge.container.style.display !== 'none') {
+        const base = badge.container.style.opacity ? parseFloat(badge.container.style.opacity) : 1
+        badge.container.style.opacity = String(base * (1 - pauseProgress))
+      }
     }
 
     // --- Live value display (DOM element, updated by ref — no React re-renders) ---

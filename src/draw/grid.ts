@@ -111,6 +111,7 @@ export function drawGrid(
   }
 
   // --- Phase 3: draw ---
+  const baseAlpha = ctx.globalAlpha
   ctx.setLineDash([1, 3])
   ctx.lineWidth = 1
   ctx.font = palette.labelFont
@@ -124,7 +125,7 @@ export function drawGrid(
     if (y < pad.top - 10 || y > h - pad.bottom + 10) continue
 
     ctx.save()
-    ctx.globalAlpha = alpha
+    ctx.globalAlpha = baseAlpha * alpha
 
     ctx.strokeStyle = palette.gridLine
     ctx.beginPath()

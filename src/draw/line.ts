@@ -1,5 +1,19 @@
 import type { LivelinePalette, ChartLayout, LivelinePoint } from '../types'
 import { drawSpline } from '../math/spline'
+import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
+
+/** Lerp between two CSS colors using the canvas normalisation trick. */
+function blendColor(ctx: CanvasRenderingContext2D, c1: string, c2: string, t: number): string {
+  if (t <= 0) return c1
+  if (t >= 1) return c2
+  // Canvas normalises any CSS color to #rrggbb when assigned to fillStyle
+  ctx.fillStyle = c1; const a = ctx.fillStyle
+  ctx.fillStyle = c2; const b = ctx.fillStyle
+  const r = Math.round(parseInt(a.slice(1, 3), 16) * (1 - t) + parseInt(b.slice(1, 3), 16) * t)
+  const g = Math.round(parseInt(a.slice(3, 5), 16) * (1 - t) + parseInt(b.slice(3, 5), 16) * t)
+  const bl = Math.round(parseInt(a.slice(5, 7), 16) * (1 - t) + parseInt(b.slice(5, 7), 16) * t)
+  return `rgb(${r},${g},${bl})`
+}
 
 /** Draw the fill gradient + stroke line for a set of points. */
 function renderCurve(
@@ -8,10 +22,15 @@ function renderCurve(
   palette: LivelinePalette,
   pts: [number, number][],
   showFill: boolean,
+  lineAlpha: number = 1,
+  fillAlpha: number = 1,
+  strokeColor?: string,
 ) {
   const { h, pad } = layout
+  const baseAlpha = ctx.globalAlpha
 
-  if (showFill) {
+  if (showFill && fillAlpha > 0.01) {
+    ctx.globalAlpha = baseAlpha * fillAlpha
     const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
     grad.addColorStop(0, palette.fillTop)
     grad.addColorStop(1, palette.fillBottom)
@@ -25,14 +44,16 @@ function renderCurve(
     ctx.fill()
   }
 
+  ctx.globalAlpha = baseAlpha * lineAlpha
   ctx.beginPath()
   ctx.moveTo(pts[0][0], pts[0][1])
   drawSpline(ctx, pts)
-  ctx.strokeStyle = palette.line
+  ctx.strokeStyle = strokeColor ?? palette.line
   ctx.lineWidth = palette.lineWidth
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
   ctx.stroke()
+  ctx.globalAlpha = baseAlpha
 }
 
 export function drawLine(
@@ -45,6 +66,8 @@ export function drawLine(
   showFill: boolean,
   scrubX: number | null,
   scrubAmount: number = 0,
+  chartReveal: number = 1,
+  now_ms: number = 0,
 ) {
   const { w, h, pad, toX, toY, chartW, chartH } = layout
 
@@ -58,14 +81,53 @@ export function drawLine(
   const yMin = pad.top
   const yMax = h - pad.bottom
   const clampY = (y: number) => Math.max(yMin, Math.min(yMax, y))
-  const pts: [number, number][] = visible.map((p, i) =>
-    i === visible.length - 1
-      ? [toX(p.time), clampY(toY(smoothValue))]
-      : [toX(p.time), clampY(toY(p.value))]
-  )
-  pts.push([toX(now), clampY(toY(smoothValue))])
+
+  // During reveal, morph Y positions from the loading squiggly shape toward real data.
+  // At chartReveal=0 the chart line traces the exact same squiggly as drawLoading/drawEmpty.
+  const centerY = pad.top + chartH / 2
+  const amplitude = chartH * LOADING_AMPLITUDE_RATIO
+  const scroll = now_ms * LOADING_SCROLL_SPEED
+  const morphY = chartReveal < 1
+    ? (rawY: number, x: number) => {
+        const t = Math.max(0, Math.min(1, (x - pad.left) / chartW))
+        const baseY = loadingY(t, centerY, amplitude, scroll)
+        return baseY + (rawY - baseY) * chartReveal
+      }
+    : (rawY: number, _x: number) => rawY
+
+  const pts: [number, number][] = visible.map((p, i) => {
+    const x = toX(p.time)
+    const y = i === visible.length - 1
+      ? morphY(clampY(toY(smoothValue)), x)
+      : morphY(clampY(toY(p.value)), x)
+    return [x, y]
+  })
+  // Tip X: at reveal=0 extends to full chart width (matching loading/empty line),
+  // at reveal=1 sits at the live dot position. Smooth morph between.
+  const liveTipX = toX(now)
+  const fullRightX = pad.left + chartW
+  const tipX = chartReveal < 1
+    ? liveTipX + (fullRightX - liveTipX) * (1 - chartReveal)
+    : liveTipX
+  pts.push([tipX, morphY(clampY(toY(smoothValue)), tipX)])
 
   if (pts.length < 2) return
+
+  // Reveal alphas: at reveal=0, line matches loading/empty brightness (shared breath).
+  // As reveal increases, line ramps to full. Fill fades in with reveal.
+  let lineAlpha = 1
+  let fillAlpha = 1
+  if (chartReveal < 1) {
+    const breath = loadingBreath(now_ms)
+    lineAlpha = breath + (1 - breath) * chartReveal
+    fillAlpha = chartReveal
+  }
+
+  // Blend line color: grey at reveal=0, accent by reveal≈0.3.
+  // Front-loaded so the color shifts early while alpha is still low.
+  const strokeColor = chartReveal < 1
+    ? blendColor(ctx, palette.gridLabel, palette.line, Math.min(1, chartReveal * 3))
+    : undefined
 
   const isScrubbing = scrubX !== null
 
@@ -83,7 +145,7 @@ export function drawLine(
     ctx.beginPath()
     ctx.rect(0, 0, scrubX!, h)
     ctx.clip()
-    renderCurve(ctx, layout, palette, pts, showFill)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
     ctx.restore()
 
     // Dimmed portion: clipped to RIGHT of scrub point
@@ -92,21 +154,26 @@ export function drawLine(
     ctx.rect(scrubX!, 0, layout.w - scrubX!, h)
     ctx.clip()
     ctx.globalAlpha = 1 - scrubAmount * 0.6
-    renderCurve(ctx, layout, palette, pts, showFill)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
     ctx.restore()
   } else {
-    renderCurve(ctx, layout, palette, pts, showFill)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
   }
 
   // Restore from chart-area clip
   ctx.restore()
 
-  // Dashed current-price line (clamped to chart bounds)
-  const currentY = Math.max(pad.top, Math.min(h - pad.bottom, toY(smoothValue)))
+  // Dashed current-price line — morphs from center during reveal (fades in late,
+  // so the center-vs-squiggly difference is imperceptible by the time it's visible)
+  const realCurrentY = Math.max(pad.top, Math.min(h - pad.bottom, toY(smoothValue)))
+  const currentY = chartReveal < 1
+    ? centerY + (realCurrentY - centerY) * chartReveal
+    : realCurrentY
   ctx.setLineDash([4, 4])
   ctx.strokeStyle = palette.dashLine
   ctx.lineWidth = 1
-  if (isScrubbing) ctx.globalAlpha = 1 - scrubAmount * 0.2
+  const dashBase = isScrubbing ? 1 - scrubAmount * 0.2 : 1
+  ctx.globalAlpha = chartReveal < 1 ? dashBase * chartReveal : dashBase
   ctx.beginPath()
   ctx.moveTo(pad.left, currentY)
   ctx.lineTo(layout.w - pad.right, currentY)

@@ -54,6 +54,9 @@ export interface DrawOptions {
   particleOptions?: DegenOptions
   swingMagnitude: number
   shakeState?: ShakeState
+  chartReveal: number       // 0 = loading/morphing from center, 1 = fully revealed
+  pauseProgress: number     // 0 = playing, 1 = fully paused
+  now_ms: number            // performance.now() for breathing animation timing
 }
 
 /**
@@ -83,33 +86,67 @@ export function drawFrame(
     if (shake.amplitude < SHAKE_MIN_AMPLITUDE) shake.amplitude = 0
   }
 
-  // 1. Reference line (behind everything)
-  if (opts.referenceLine) {
+  const reveal = opts.chartReveal
+  const pause = opts.pauseProgress
+
+  // Smoothstep helper for staggered reveal
+  const revealRamp = (start: number, end: number) => {
+    const t = Math.max(0, Math.min(1, (reveal - start) / (end - start)))
+    return t * t * (3 - 2 * t)
+  }
+
+  // 1. Reference line (behind everything) — fades with reveal
+  if (opts.referenceLine && reveal > 0.01) {
+    ctx.save()
+    if (reveal < 1) ctx.globalAlpha = reveal
     drawReferenceLine(ctx, layout, palette, opts.referenceLine)
+    ctx.restore()
   }
 
-  // 2. Grid
+  // 2. Grid — fades in delayed (15%–70% of reveal)
   if (opts.showGrid) {
-    drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+    const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (gridAlpha > 0.01) {
+      ctx.save()
+      if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
+      drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      ctx.restore()
+    }
   }
 
-  // 2b. Orderbook (behind line)
-  if (opts.orderbookData && opts.orderbookState) {
+  // 2b. Orderbook (behind line) — fades with reveal
+  if (opts.orderbookData && opts.orderbookState && reveal > 0.01) {
+    ctx.save()
+    if (reveal < 1) ctx.globalAlpha = reveal
     drawOrderbook(ctx, layout, palette, opts.orderbookData, opts.dt, opts.orderbookState, opts.swingMagnitude)
+    ctx.restore()
   }
 
-  // 3. Line + fill (with scrub dimming)
-  // Pass scrubX only when scrub is active enough to be visible
-  const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
-  const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount)
+  // Pause dimming — data elements (line, fill, dot) fade to 50%
+  const pauseDim = 1 - pause * 0.5
 
-  // 4. Time axis
-  drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+  // 3. Line + fill (with scrub dimming + reveal morphing + pause dim)
+  const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
+  ctx.save()
+  if (pauseDim < 1) ctx.globalAlpha = pauseDim
+  const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
+  ctx.restore()
+
+  // 4. Time axis — same timing as grid
+  {
+    const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (timeAlpha > 0.01) {
+      ctx.save()
+      if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
+      drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      ctx.restore()
+    }
+  }
 
   if (pts && pts.length > 0) {
     const lastPt = pts[pts.length - 1]
 
-    // 5. Dot — dims during scrub, returns to full opacity near the live dot
+    // 5. Dot — dims during scrub, fades in with reveal (0.3 → 1.0)
     let dotScrub = opts.scrubAmount
     if (opts.hoverX !== null && dotScrub > 0) {
       const distToLive = lastPt[0] - opts.hoverX
@@ -118,16 +155,34 @@ export function drawFrame(
         : distToLive >= fadeStart ? opts.scrubAmount
         : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
     }
-    drawDot(ctx, lastPt[0], lastPt[1], palette, opts.showPulse, dotScrub)
-    if (opts.showMomentum) {
-      drawArrows(
-        ctx, lastPt[0], lastPt[1],
-        opts.momentum, palette, opts.arrowState, opts.dt,
-      )
+
+    // Dot appears once shape is recognizable (reveal > 0.3), dims with pause
+    const dotAlpha = (reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7) * pauseDim
+    const showPulse = opts.showPulse && reveal > 0.6 && pause < 0.5
+    if (dotAlpha > 0.01) {
+      ctx.save()
+      if (dotAlpha < 1) ctx.globalAlpha = dotAlpha
+      drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, dotScrub)
+      ctx.restore()
     }
 
-    // 6. Particles — spawn on large swings at the live dot
-    if (opts.particleState) {
+    // 5b. Arrows — appear late in reveal (60%+), fade with pause
+    if (opts.showMomentum) {
+      const arrowReveal = reveal < 1 ? revealRamp(0.6, 1) : 1
+      const arrowAlpha = arrowReveal * (1 - pause)
+      if (arrowAlpha > 0.01) {
+        ctx.save()
+        if (arrowAlpha < 1) ctx.globalAlpha = arrowAlpha
+        drawArrows(
+          ctx, lastPt[0], lastPt[1],
+          opts.momentum, palette, opts.arrowState, opts.dt,
+        )
+        ctx.restore()
+      }
+    }
+
+    // 6. Particles — only when fully revealed
+    if (opts.particleState && reveal > 0.9) {
       const burstIntensity = spawnOnSwing(
         opts.particleState, opts.momentum, lastPt[0], lastPt[1],
         opts.swingMagnitude, palette.line, opts.dt, opts.particleOptions,

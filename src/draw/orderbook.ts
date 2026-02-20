@@ -162,11 +162,12 @@ export function drawOrderbook(
   state.labels.length = writeIdx
 
   // Draw
+  const baseAlpha = ctx.globalAlpha
   ctx.save()
   ctx.font = '600 13px "SF Mono", Menlo, monospace'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.globalAlpha = 1
+  ctx.globalAlpha = baseAlpha
 
   const outlineColor = `rgb(${bg[0]},${bg[1]},${bg[2]})`
 
