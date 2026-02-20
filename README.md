@@ -72,6 +72,7 @@ The component fills its parent container. Set a height on the parent. Pass `data
 |------|------|---------|-------------|
 | `loading` | `boolean` | `false` | Breathing line animation — use while waiting for data |
 | `paused` | `boolean` | `false` | Smoothly freeze chart scrolling; resume catches up to real time |
+| `emptyText` | `string` | `'No data to display'` | Text shown in the empty state |
 
 When `loading` flips to `false` with data present, the flat loading line morphs into the actual chart shape (line, fill, grid, and badge all animate in). When `data` is empty and `loading` is `false`, a minimal "No data" empty state is shown.
 

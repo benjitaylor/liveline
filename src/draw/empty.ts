@@ -19,13 +19,14 @@ export function drawEmpty(
   alpha: number = 1,
   now_ms: number = 0,
   skipLine: boolean = false,
+  emptyText?: string,
 ): void {
   const chartW = w - pad.left - pad.right
   const chartH = h - pad.top - pad.bottom
   const centerY = pad.top + chartH / 2
   const cx = pad.left + chartW / 2
 
-  const text = 'No data to display'
+  const text = emptyText ?? 'No data to display'
   ctx.font = '400 12px system-ui, -apple-system, sans-serif'
 
   const amplitude = chartH * LOADING_AMPLITUDE_RATIO

@@ -26,6 +26,7 @@ export function Liveline({
   scrub = true,
   loading = false,
   paused = false,
+  emptyText,
   exaggerate = false,
   degen: degenProp,
   badgeTail = true,
@@ -131,6 +132,7 @@ export function Liveline({
     orderbookData: orderbook,
     loading,
     paused,
+    emptyText,
   })
 
   const cursorStyle = scrub ? cursor : 'default'

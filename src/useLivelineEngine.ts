@@ -42,6 +42,7 @@ interface EngineConfig {
   orderbookData?: OrderbookData
   loading?: boolean
   paused?: boolean
+  emptyText?: string
 }
 
 interface BadgeEls {
@@ -667,7 +668,7 @@ export function useLivelineEngine(
         drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha)
       }
       if ((1 - loadingAlpha) > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms)
+        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms, false, cfg.emptyText)
       }
       // Left-edge fade
       ctx.save()
@@ -836,7 +837,7 @@ export function useLivelineEngine(
     if (bgAlpha > 0.01 && revealTarget === 0 && !cfg.loading) {
       const bgEmptyAlpha = (1 - loadingAlpha) * bgAlpha
       if (bgEmptyAlpha > 0.01) {
-        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true)
+        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true, cfg.emptyText)
       }
     }
 
