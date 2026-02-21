@@ -733,8 +733,13 @@ export function useLivelineEngine(
     const leftEdge = rightEdge - windowSecs
 
     // Filter visible points — when pausing, contract right edge to `now`
-    // so new data (with real-time timestamps) can't appear past the live dot
-    const filterRight = rightEdge - (rightEdge - now) * pauseProgress
+    // so new data (with real-time timestamps) can't appear past the live dot.
+    // While draining time debt (catch-up), also cap at `now` — data from the
+    // pause period has real-time timestamps ahead of the chart's lagging `now`,
+    // and letting those through would place points past the live tip, breaking
+    // the spline's monotone-X assumption and causing the line to loop backward.
+    const rawFilterRight = rightEdge - (rightEdge - now) * pauseProgress
+    const filterRight = timeDebtRef.current > 0.01 ? Math.min(now, rawFilterRight) : rawFilterRight
     const visible: LivelinePoint[] = []
     for (const p of effectivePoints) {
       if (p.time >= leftEdge - 2 && p.time <= filterRight) {
