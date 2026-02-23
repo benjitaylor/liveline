@@ -96,6 +96,7 @@ export interface LivelineProps {
   onHover?: (point: HoverPoint | null) => void
   cursor?: string          // CSS cursor on hover (default: 'crosshair')
   pulse?: boolean          // Pulsing ring on live dot (default: true)
+  lineWidth?: number       // Stroke width of the main line in px (default: 2)
 
   className?: string
   style?: CSSProperties
