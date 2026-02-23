@@ -109,6 +109,8 @@ function Demo() {
   volatilityRef.current = volatility
   const startValueRef = useRef(startValue)
   startValueRef.current = startValue
+  // Tick buffer covers widest window: crypto 1h=3600 ticks, dev 5m≈1000 ticks
+  const maxTicksRef = useRef(1200)
 
   const tickAndAggregate = (pt: LivelinePoint) => {
     const width = candleSecsRef.current
@@ -121,7 +123,7 @@ function Demo() {
       const committed = { ...lc }
       setCandles(prev => {
         const next = [...prev, committed]
-        return next.length > 500 ? next.slice(-500) : next
+        return next.length > maxTicksRef.current ? next.slice(-maxTicksRef.current) : next
       })
       const slot = Math.floor(pt.time / width) * width
       liveCandleRef.current = { time: slot, open: pt.value, high: pt.value, low: pt.value, close: pt.value }
@@ -168,7 +170,7 @@ function Demo() {
       setValue(pt.value)
       setData(prev => {
         const next = [...prev, pt]
-        const trimmed = next.length > 500 ? next.slice(-500) : next
+        const trimmed = next.length > maxTicksRef.current ? next.slice(-maxTicksRef.current) : next
         dataRef.current = trimmed
         return trimmed
       })
@@ -216,7 +218,7 @@ function Demo() {
       setValue(pt.value)
       setData(prev => {
         const next = [...prev, pt]
-        const trimmed = next.length > 500 ? next.slice(-500) : next
+        const trimmed = next.length > maxTicksRef.current ? next.slice(-maxTicksRef.current) : next
         dataRef.current = trimmed
         return trimmed
       })
@@ -244,6 +246,7 @@ function Demo() {
       setWindowSecs(300)
       setVolatility('calm')
       setChartType('candle')
+      maxTicksRef.current = 4000 // covers 1h window at 1 tick/sec
     } else {
       setStartValue(100)
       startValueRef.current = 100
@@ -253,6 +256,7 @@ function Demo() {
       setWindowSecs(30)
       setVolatility('normal')
       setChartType('candle')
+      maxTicksRef.current = 1200 // covers 5m window at ~3 ticks/sec
     }
     // Force re-seed by cycling to loading
     setData([]); dataRef.current = []
