@@ -7,10 +7,11 @@ import type { LivelinePoint, CandlePoint } from 'liveline'
 
 type Volatility = 'calm' | 'normal' | 'spiky' | 'chaos'
 
-function generatePoint(prev: number, time: number, volatility: Volatility): LivelinePoint {
+function generatePoint(prev: number, time: number, volatility: Volatility, baseValue = 100): LivelinePoint {
   const v: Record<Volatility, number> = { calm: 0.15, normal: 0.8, spiky: 3, chaos: 8 }
   const bias: Record<Volatility, number> = { calm: 0.49, normal: 0.48, spiky: 0.47, chaos: 0.45 }
-  const scale = v[volatility]
+  const priceScale = baseValue / 100
+  const scale = v[volatility] * priceScale
   const spike = (volatility === 'spiky' || volatility === 'chaos') && Math.random() < 0.08
     ? (Math.random() - 0.5) * scale * 3
     : 0
@@ -48,6 +49,12 @@ const TIME_WINDOWS = [
   { label: '5m', secs: 300 },
 ]
 
+const CRYPTO_WINDOWS = [
+  { label: '5m', secs: 300 },
+  { label: '15m', secs: 900 },
+  { label: '1h', secs: 3600 },
+]
+
 const TICK_RATES: { label: string; ms: number }[] = [
   { label: '50ms', ms: 50 },
   { label: '100ms', ms: 100 },
@@ -64,9 +71,14 @@ const CANDLE_WIDTHS = [
   { label: '10s', secs: 10 },
 ]
 
+type Preset = 'dev' | 'crypto'
+
+const formatCrypto = (v: number) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 // --- Demo ---
 
 function Demo() {
+  const [preset, setPreset] = useState<Preset>('dev')
   const [data, setData] = useState<LivelinePoint[]>([])
   const [value, setValue] = useState(100)
   const [loading, setLoading] = useState(true)
@@ -88,12 +100,15 @@ function Demo() {
 
   const candleSecsRef = useRef(candleSecs)
   candleSecsRef.current = candleSecs
+  const [startValue, setStartValue] = useState(100)
   const lastValueRef = useRef(100)
   const liveCandleRef = useRef<CandlePoint | null>(null)
   const dataRef = useRef<LivelinePoint[]>([])
   const intervalRef = useRef<number>(0)
   const volatilityRef = useRef(volatility)
   volatilityRef.current = volatility
+  const startValueRef = useRef(startValue)
+  startValueRef.current = startValue
 
   const tickAndAggregate = (pt: LivelinePoint) => {
     const width = candleSecsRef.current
@@ -124,10 +139,15 @@ function Demo() {
     setLoading(false)
 
     const now = Date.now() / 1000
+    const base = startValueRef.current
+    const isCrypto = base > 1000
+    const seedTickInterval = isCrypto ? 1 : 0.3
+    // Cover the widest time window with margin: crypto 1h=3600s, dev 5m=300s
+    const seedCount = isCrypto ? 3800 : 500
     const seed: LivelinePoint[] = []
-    let v = 100
-    for (let i = 500; i >= 0; i--) {
-      const pt = generatePoint(v, now - i * 0.3, volatilityRef.current)
+    let v = base
+    for (let i = seedCount; i >= 0; i--) {
+      const pt = generatePoint(v, now - i * seedTickInterval, volatilityRef.current, base)
       seed.push(pt)
       v = pt.value
     }
@@ -143,7 +163,7 @@ function Demo() {
 
     intervalRef.current = window.setInterval(() => {
       const now = Date.now() / 1000
-      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current)
+      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current, startValueRef.current)
       lastValueRef.current = pt.value
       setValue(pt.value)
       setData(prev => {
@@ -191,7 +211,7 @@ function Demo() {
     clearInterval(intervalRef.current)
     intervalRef.current = window.setInterval(() => {
       const now = Date.now() / 1000
-      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current)
+      const pt = generatePoint(lastValueRef.current, now, volatilityRef.current, startValueRef.current)
       lastValueRef.current = pt.value
       setValue(pt.value)
       setData(prev => {
@@ -212,6 +232,37 @@ function Demo() {
     setLiveCandle(agg.live)
     liveCandleRef.current = agg.live ? { ...agg.live } : null
   }, [candleSecs, scenario])
+
+  // Preset switch — reset all dependent state
+  useEffect(() => {
+    if (preset === 'crypto') {
+      setStartValue(65000)
+      startValueRef.current = 65000
+      setTickRate(1000)
+      setCandleSecs(60)
+      candleSecsRef.current = 60
+      setWindowSecs(300)
+      setVolatility('calm')
+      setChartType('candle')
+    } else {
+      setStartValue(100)
+      startValueRef.current = 100
+      setTickRate(300)
+      setCandleSecs(2)
+      candleSecsRef.current = 2
+      setWindowSecs(30)
+      setVolatility('normal')
+      setChartType('candle')
+    }
+    // Force re-seed by cycling to loading
+    setData([]); dataRef.current = []
+    setCandles([]); setLiveCandle(null); liveCandleRef.current = null
+    lastValueRef.current = preset === 'crypto' ? 65000 : 100
+    clearInterval(intervalRef.current)
+    setLoading(true)
+    setScenario('loading')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset])
 
   const isDark = theme === 'dark'
   const fgBase = isDark ? '255,255,255' : '0,0,0'
@@ -237,6 +288,11 @@ function Demo() {
         Liveline Candlestick
       </h1>
       <p style={{ fontSize: 12, color: 'var(--fg-30)', marginBottom: 20 }}>Candlestick chart with line mode morph</p>
+
+      <Section label="Preset">
+        <Btn active={preset === 'dev'} onClick={() => setPreset('dev')}>Dev</Btn>
+        <Btn active={preset === 'crypto'} onClick={() => setPreset('crypto')}>Crypto</Btn>
+      </Section>
 
       <Section label="State">
         <Btn active={scenario === 'loading'} onClick={() => setScenario('loading')}>Loading → Live</Btn>
@@ -313,7 +369,11 @@ function Demo() {
           loading={loading}
           paused={paused}
           theme={theme}
+          color={preset === 'crypto' ? '#f7931a' : undefined}
           window={windowSecs}
+          windows={preset === 'crypto' ? CRYPTO_WINDOWS : undefined}
+          formatValue={preset === 'crypto' ? formatCrypto : undefined}
+          onModeChange={(mode) => setChartType(mode)}
           grid={grid}
           scrub={scrub}
         />
@@ -353,7 +413,9 @@ function Demo() {
                 loading={loading}
                 paused={paused}
                 theme={theme}
+                color={preset === 'crypto' ? '#f7931a' : undefined}
                 window={windowSecs}
+                formatValue={preset === 'crypto' ? formatCrypto : undefined}
                 grid={grid && size.w >= 200}
                 scrub={scrub}
               />
@@ -372,6 +434,7 @@ function Demo() {
         gap: 16,
         flexWrap: 'wrap',
       }}>
+        <span>preset: {preset}</span>
         <span>ticks: {data.length}</span>
         <span>candles: {candles.length}</span>
         <span>loading: {String(loading)}</span>

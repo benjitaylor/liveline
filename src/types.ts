@@ -105,6 +105,7 @@ export interface LivelineProps {
   lineMode?: boolean              // Morph candles into line display
   lineData?: LivelinePoint[]      // Tick-level data for density transition
   lineValue?: number              // Current tick value for density transition
+  onModeChange?: (mode: 'line' | 'candle') => void  // Built-in toggle callback
 
   className?: string
   style?: CSSProperties

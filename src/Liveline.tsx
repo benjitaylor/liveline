@@ -54,6 +54,7 @@ export function Liveline({
   lineMode,
   lineData,
   lineValue,
+  onModeChange,
   className,
   style,
 }: LivelineProps) {
@@ -63,6 +64,9 @@ export function Liveline({
   const windowBarRef = useRef<HTMLDivElement>(null)
   const windowBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
+  const modeBarRef = useRef<HTMLDivElement>(null)
+  const modeBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const [modeIndicatorStyle, setModeIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
 
   const palette = useMemo(() => resolveTheme(color, theme), [color, theme])
   const isDark = theme === 'dark'
@@ -108,6 +112,22 @@ export function Liveline({
     }
   }, [activeWindowSecs, windows])
 
+  // Measure active mode button for sliding indicator
+  const activeMode = lineMode ? 'line' : 'candle'
+  useLayoutEffect(() => {
+    if (!onModeChange) return
+    const btn = modeBtnRefs.current.get(activeMode)
+    const bar = modeBarRef.current
+    if (btn && bar) {
+      const barRect = bar.getBoundingClientRect()
+      const btnRect = btn.getBoundingClientRect()
+      setModeIndicatorStyle({
+        left: btnRect.left - barRect.left,
+        width: btnRect.width,
+      })
+    }
+  }, [activeMode, onModeChange])
+
   const ws = windowStyle ?? 'default'
 
   useLivelineEngine(canvasRef, containerRef, {
@@ -117,7 +137,7 @@ export function Liveline({
     windowSecs: effectiveWindowSecs,
     lerpSpeed,
     showGrid: grid,
-    showBadge: mode === 'candle' ? (lineMode ? badge : false) : badge,
+    showBadge: badge,
     showMomentum,
     momentumOverride,
     showFill: fill,
@@ -151,6 +171,9 @@ export function Liveline({
 
   const cursorStyle = scrub ? cursor : 'default'
 
+  const activeColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)'
+  const inactiveColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.22)'
+
   return (
     <>
       {/* Live value display — above the chart */}
@@ -172,71 +195,161 @@ export function Liveline({
         />
       )}
 
-      {/* Time window controls — above chart, not overlapping data */}
-      {windows && windows.length > 0 && (
-        <div
-          ref={windowBarRef}
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            gap: ws === 'text' ? 4 : 2,
-            background: ws === 'text' ? 'transparent'
-              : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            borderRadius: ws === 'rounded' ? 999 : 6,
-            padding: ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2,
-            marginBottom: 6,
-            marginLeft: pad.left,
-          }}
-        >
-          {/* Sliding indicator (default + rounded) */}
-          {ws !== 'text' && indicatorStyle && (
-            <div style={{
-              position: 'absolute',
-              top: ws === 'rounded' ? 3 : 2,
-              left: indicatorStyle.left,
-              width: indicatorStyle.width,
-              height: ws === 'rounded' ? 'calc(100% - 6px)' : 'calc(100% - 4px)',
-              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)',
-              borderRadius: ws === 'rounded' ? 999 : 4,
-              transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-              pointerEvents: 'none' as const,
-            }} />
+      {/* Control bars row — window pills + mode toggle side by side */}
+      {((windows && windows.length > 0) || onModeChange) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, marginLeft: pad.left }}>
+          {/* Time window controls */}
+          {windows && windows.length > 0 && (
+            <div
+              ref={windowBarRef}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                gap: ws === 'text' ? 4 : 2,
+                background: ws === 'text' ? 'transparent'
+                  : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                borderRadius: ws === 'rounded' ? 999 : 6,
+                padding: ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2,
+              }}
+            >
+              {/* Sliding indicator (default + rounded) */}
+              {ws !== 'text' && indicatorStyle && (
+                <div style={{
+                  position: 'absolute',
+                  top: ws === 'rounded' ? 3 : 2,
+                  left: indicatorStyle.left,
+                  width: indicatorStyle.width,
+                  height: ws === 'rounded' ? 'calc(100% - 6px)' : 'calc(100% - 4px)',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)',
+                  borderRadius: ws === 'rounded' ? 999 : 4,
+                  transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  pointerEvents: 'none' as const,
+                }} />
+              )}
+              {windows.map((w) => {
+                const isActive = w.secs === activeWindowSecs
+                return (
+                  <button
+                    key={w.secs}
+                    ref={(el) => {
+                      if (el) windowBtnRefs.current.set(w.secs, el)
+                      else windowBtnRefs.current.delete(w.secs)
+                    }}
+                    onClick={() => {
+                      setActiveWindowSecs(w.secs)
+                      onWindowChange?.(w.secs)
+                    }}
+                    style={{
+                      position: 'relative',
+                      zIndex: 1,
+                      fontSize: 11,
+                      padding: ws === 'text' ? '2px 6px' : '3px 10px',
+                      borderRadius: ws === 'rounded' ? 999 : 4,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      fontWeight: isActive ? 600 : 400,
+                      background: 'transparent',
+                      color: isActive ? activeColor : inactiveColor,
+                      transition: 'color 0.2s, background 0.15s',
+                      lineHeight: '16px',
+                    }}
+                  >
+                    {w.label}
+                  </button>
+                )
+              })}
+            </div>
           )}
-          {windows.map((w) => {
-            const isActive = w.secs === activeWindowSecs
-            return (
+
+          {/* Mode toggle — separate bar with its own sliding indicator */}
+          {onModeChange && (
+            <div
+              ref={modeBarRef}
+              style={{
+                position: 'relative',
+                display: 'inline-flex',
+                gap: 2,
+                background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                borderRadius: 6,
+                padding: 2,
+              }}
+            >
+              {/* Sliding indicator */}
+              {modeIndicatorStyle && (
+                <div style={{
+                  position: 'absolute',
+                  top: 2,
+                  left: modeIndicatorStyle.left,
+                  width: modeIndicatorStyle.width,
+                  height: 'calc(100% - 4px)',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)',
+                  borderRadius: 4,
+                  transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                  pointerEvents: 'none' as const,
+                }} />
+              )}
+              {/* Line icon */}
               <button
-                key={w.secs}
                 ref={(el) => {
-                  if (el) windowBtnRefs.current.set(w.secs, el)
-                  else windowBtnRefs.current.delete(w.secs)
+                  if (el) modeBtnRefs.current.set('line', el)
+                  else modeBtnRefs.current.delete('line')
                 }}
-                onClick={() => {
-                  setActiveWindowSecs(w.secs)
-                  onWindowChange?.(w.secs)
-                }}
+                onClick={() => onModeChange('line')}
                 style={{
                   position: 'relative',
                   zIndex: 1,
-                  fontSize: 11,
-                  padding: ws === 'text' ? '2px 6px' : '3px 10px',
-                  borderRadius: ws === 'rounded' ? 999 : 4,
+                  padding: '5px 7px',
+                  borderRadius: 4,
                   border: 'none',
                   cursor: 'pointer',
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  fontWeight: isActive ? 600 : 400,
                   background: 'transparent',
-                  color: isActive
-                    ? (isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.55)')
-                    : (isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.22)'),
-                  transition: 'color 0.2s, background 0.15s',
-                  lineHeight: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
                 }}
               >
-                {w.label}
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M1 8.5C2.5 8.5 3 4 5.5 4S7.5 7 8.5 7C9.5 7 10 3.5 11 3.5"
+                    stroke={activeMode === 'line' ? activeColor : inactiveColor}
+                    strokeWidth={activeMode === 'line' ? 1.5 : 1.2}
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </svg>
               </button>
-            )
-          })}
+              {/* Candle icon */}
+              <button
+                ref={(el) => {
+                  if (el) modeBtnRefs.current.set('candle', el)
+                  else modeBtnRefs.current.delete('candle')
+                }}
+                onClick={() => onModeChange('candle')}
+                style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  padding: '5px 7px',
+                  borderRadius: 4,
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <line x1="3.5" y1="1" x2="3.5" y2="11"
+                    stroke={activeMode === 'candle' ? activeColor : inactiveColor} strokeWidth="1" />
+                  <rect x="2" y="3" width="3" height="5" rx="0.5"
+                    fill={activeMode === 'candle' ? activeColor : inactiveColor} />
+                  <line x1="8.5" y1="2" x2="8.5" y2="10"
+                    stroke={activeMode === 'candle' ? activeColor : inactiveColor} strokeWidth="1" />
+                  <rect x="7" y="4" width="3" height="4" rx="0.5"
+                    fill={activeMode === 'candle' ? activeColor : inactiveColor} />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       )}
 

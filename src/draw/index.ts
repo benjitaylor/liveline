@@ -238,6 +238,8 @@ export interface CandleDrawOptions {
   oldWidth: number
   morphT: number                    // candle width transition progress (-1 = none)
   liveCandle?: CandlePoint
+  /** Pre-blend live candle for the dashed close-price line (unaffected by line mode morph) */
+  closePriceCandle?: CandlePoint
   liveTime: number
   liveBirthAlpha: number
   liveBullBlend: number
@@ -330,19 +332,22 @@ export function drawCandleFrame(
   }
 
   // 3. Close price line — fades in (40%–80% of reveal)
+  //    Uses closePriceCandle (pre-blend) so the dashed line isn't affected
+  //    by line mode morph or OHLC collapse.
   const closeAlpha = revealRamp(0.4, 0.8)
-  if (opts.liveCandle && closeAlpha > 0.01) {
+  const closeSource = opts.closePriceCandle ?? opts.liveCandle
+  if (closeSource && closeAlpha > 0.01) {
     // Candle-colored close line (fades out with lineModeProg)
     if (lp < 0.99) {
       ctx.save()
       ctx.globalAlpha = closeAlpha * (1 - lp)
-      drawClosePrice(ctx, layout, palette, opts.liveCandle, opts.scrubAmount, opts.liveBullBlend)
+      drawClosePrice(ctx, layout, palette, closeSource, opts.scrubAmount, opts.liveBullBlend)
       ctx.restore()
     }
     // Accent-colored dash line (fades in with lineModeProg)
     // Skip when fully in line mode — drawLine draws its own morphing dash
     if (lp > 0.01 && !fullLineMode) {
-      const dashY = layout.toY(opts.liveCandle.close)
+      const dashY = layout.toY(closeSource.close)
       if (dashY >= pad.top && dashY <= h - pad.bottom) {
         ctx.save()
         ctx.setLineDash([4, 4])

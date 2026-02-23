@@ -88,6 +88,7 @@ const LOADING_ALPHA_SPEED = 0.14
 const CANDLE_LERP_SPEED = 0.25
 const CANDLE_WIDTH_TRANS_MS = 300
 const LINE_MORPH_MS = 500
+const CLOSE_LINE_LERP_SPEED = 0.25  // matches candle body speed
 const LINE_DENSITY_MS = 350
 const LINE_LERP_BASE = 0.08
 const LINE_ADAPTIVE_BOOST = 0.2
@@ -415,31 +416,6 @@ function computeCandleRange(
   return { min: min - margin, max: max + margin }
 }
 
-function computeCloseRange(
-  candles: CandlePoint[],
-  smoothClose?: number,
-): { min: number; max: number } {
-  let min = Infinity
-  let max = -Infinity
-  for (const c of candles) {
-    if (c.close < min) min = c.close
-    if (c.close > max) max = c.close
-  }
-  if (smoothClose !== undefined) {
-    if (smoothClose < min) min = smoothClose
-    if (smoothClose > max) max = smoothClose
-  }
-  if (!isFinite(min) || !isFinite(max)) return { min: 99, max: 101 }
-  const range = max - min
-  const margin = range * 0.12
-  const minRange = range * 0.1 || 0.4
-  if (range < minRange) {
-    const mid = (min + max) / 2
-    return { min: mid - minRange / 2, max: mid + minRange / 2 }
-  }
-  return { min: min - margin, max: max + margin }
-}
-
 function candleAtX(
   candles: CandlePoint[],
   hoverX: number,
@@ -632,6 +608,8 @@ export function useLivelineEngine(
   const liveBullRef = useRef(0.5)
   const lineSmoothCloseRef = useRef(0)
   const lineSmoothInitedRef = useRef(false)
+  const closeLineSmoothRef = useRef(0)         // smooth close for dashed line — never resets on candle birth
+  const closeLineSmoothInitedRef = useRef(false)
   const lineModeProgRef = useRef(0)
   const lineModeTransRef = useRef({ startMs: 0, from: 0, to: 0 })
   const lineDensityProgRef = useRef(0)
@@ -1091,6 +1069,23 @@ export function useLivelineEngine(
         liveBullRef.current = 0.5
       }
 
+      // --- Smooth close for dashed price line ---
+      // Tracks rawLive.close at candle-body speed but never resets on candle
+      // birth, so the dashed line doesn't jump when a new candle starts.
+      if (rawLive) {
+        if (!closeLineSmoothInitedRef.current) {
+          closeLineSmoothRef.current = rawLive.close
+          closeLineSmoothInitedRef.current = true
+        } else {
+          closeLineSmoothRef.current = lerp(closeLineSmoothRef.current, rawLive.close, CLOSE_LINE_LERP_SPEED, pausedDt)
+          const gap = Math.abs(closeLineSmoothRef.current - rawLive.close)
+          const range = displayMaxRef.current - displayMinRef.current || 1
+          if (gap < range * 0.0005) closeLineSmoothRef.current = rawLive.close
+        }
+      } else if (!useStash) {
+        closeLineSmoothInitedRef.current = false
+      }
+
       // --- Smooth close for line mode ---
       if (rawLive) {
         if (!lineSmoothInitedRef.current) {
@@ -1151,32 +1146,18 @@ export function useLivelineEngine(
       const effectiveLive = useStash ? (lastLiveRef.current ?? undefined) : smoothLive
 
       // --- Range computation ---
+      // Always use full OHLC range regardless of line mode progress.
+      // The close-only and tick-level ranges are tighter (no wicks),
+      // so blending between them during morphs shifts the Y axis and
+      // causes visible grid label drift + line position jumps.
+      // Using one consistent OHLC range means zero range change during
+      // the morph — the line gets slightly more Y margin in line mode
+      // (room for wicks it doesn't use) but that's an acceptable trade-off.
       const chartW = w - pad.left - pad.right
-      let computed = effectiveVisible.length > 0
+      const computed = effectiveVisible.length > 0
         ? computeCandleRange(effectiveVisible)
         : { min: displayMinRef.current, max: displayMaxRef.current }
-      if (lineModeProg > 0.01 && effectiveVisible.length > 0) {
-        const smoothClose = lineSmoothInitedRef.current ? lineSmoothCloseRef.current : undefined
-        const closeRng = computeCloseRange(effectiveVisible, smoothClose)
-        computed = {
-          min: computed.min + (closeRng.min - computed.min) * lineModeProg,
-          max: computed.max + (closeRng.max - computed.max) * lineModeProg,
-        }
-      }
-      if (lineDensityProg > 0.01 && effectiveLineData && effectiveLineData.length > 0) {
-        const smoothTick = lineTickSmoothInitedRef.current ? lineTickSmoothRef.current : computed.min
-        const visibleTicks: LivelinePoint[] = []
-        for (const pt of effectiveLineData) {
-          if (pt.time >= leftEdge && pt.time <= rightEdge) visibleTicks.push(pt)
-        }
-        if (visibleTicks.length > 0) {
-          const tickRng = computeRange(visibleTicks, smoothTick)
-          computed = {
-            min: computed.min + (tickRng.min - computed.min) * lineDensityProg,
-            max: computed.max + (tickRng.max - computed.max) * lineDensityProg,
-          }
-        }
-      }
+
       const rangeResult = updateCandleRange(
         computed, rangeInitedRef.current,
         displayMinRef.current, displayMaxRef.current,
@@ -1264,9 +1245,15 @@ export function useLivelineEngine(
 
       // Build lineVisible for drawLine — value-space points that drawLine
       // converts to screen coords with its own morphY/alpha/color logic.
+      // Use tick-level resolution whenever the line is visible (lineModeProg > 0.05),
+      // not just when lineDensityProg > 0.01.  The density transition finishes
+      // 150ms before the line fades out; without this, lineVisible abruptly drops
+      // from ~300 smooth points to ~5 stepped candle-close points while the line
+      // is still at ~30% opacity, causing a visible shape jump.
       let lineVisible: LivelinePoint[]
       let lineSmoothValue: number
-      if (lineDensityProg > 0.01 && effectiveLineData && effectiveLineData.length > 0) {
+      if (effectiveLineData && effectiveLineData.length > 0
+        && (lineDensityProg > 0.01 || lineModeProg > 0.05)) {
         // Density transition: blend candle-close values toward tick values
         const closeRefs: { t: number; v: number }[] = []
         for (const c of drawCandles) {
@@ -1339,6 +1326,9 @@ export function useLivelineEngine(
         oldWidth: cwt.oldWidth,
         morphT,
         liveCandle: drawLive,
+        closePriceCandle: closeLineSmoothInitedRef.current && rawLive
+          ? { ...rawLive, close: closeLineSmoothRef.current }
+          : rawLive,
         liveTime: effectiveLive?.time ?? -1,
         liveBirthAlpha: liveBirthAlphaRef.current,
         liveBullBlend: liveBullRef.current,
