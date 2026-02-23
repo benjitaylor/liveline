@@ -365,23 +365,40 @@ export function drawCandleFrame(
   }
 
   // 4. Candles — alpha = chartReveal * (1 - lp)
+  //    During reveal, OHLC collapses toward close so candle bodies shrink
+  //    into thin lines before fading out (or grow from thin lines on appear).
   const candleAlpha = opts.chartReveal * (1 - lp)
   if (candleAlpha > 0.01) {
+    // OHLC expansion uses smoothstep on reveal — this keeps shape and alpha
+    // in sync (at 50% visible, candles are ~50% expanded rather than flat).
+    const ohlcScale = reveal * reveal * (3 - 2 * reveal)
+    const collapseC = (c: CandlePoint): CandlePoint =>
+      ohlcScale >= 0.99 ? c : ({
+        time: c.time,
+        open: c.close + (c.open - c.close) * ohlcScale,
+        high: c.close + (c.high - c.close) * ohlcScale,
+        low: c.close + (c.low - c.close) * ohlcScale,
+        close: c.close,
+      })
+    const revealCandles = ohlcScale < 0.99 ? opts.candles.map(collapseC) : opts.candles
+    const revealOld = ohlcScale < 0.99 && opts.oldCandles.length > 0
+      ? opts.oldCandles.map(collapseC) : opts.oldCandles
+
     ctx.save()
     ctx.beginPath()
     ctx.rect(pad.left - 1, pad.top, chartW + 2, chartH)
     ctx.clip()
     const accentCol = lp > 0.01 ? palette.line : undefined
-    if (opts.morphT >= 0 && opts.oldCandles.length > 0) {
+    if (opts.morphT >= 0 && revealOld.length > 0) {
       ctx.globalAlpha = (1 - opts.morphT) * candleAlpha
       drawCandlesticks(
-        ctx, layout, opts.oldCandles, opts.oldWidth,
+        ctx, layout, revealOld, opts.oldWidth,
         -1, opts.now_ms, opts.hoverX ?? 0, opts.scrubAmount,
         1, -1, accentCol, lp,
       )
       ctx.globalAlpha = opts.morphT * candleAlpha
       drawCandlesticks(
-        ctx, layout, opts.candles, opts.displayCandleWidth,
+        ctx, layout, revealCandles, opts.displayCandleWidth,
         opts.liveCandle?.time ?? -1, opts.now_ms,
         opts.hoverX ?? 0, opts.scrubAmount,
         opts.liveBirthAlpha, opts.liveBullBlend,
@@ -391,7 +408,7 @@ export function drawCandleFrame(
     } else {
       if (candleAlpha < 1) ctx.globalAlpha = candleAlpha
       drawCandlesticks(
-        ctx, layout, opts.candles, opts.displayCandleWidth,
+        ctx, layout, revealCandles, opts.displayCandleWidth,
         opts.liveCandle?.time ?? -1, opts.now_ms,
         opts.hoverX ?? 0, opts.scrubAmount,
         opts.liveBirthAlpha, opts.liveBullBlend,

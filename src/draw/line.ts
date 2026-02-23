@@ -104,14 +104,18 @@ export function drawLine(
 
   // During reveal, morph Y positions from the loading squiggly shape toward real data.
   // At chartReveal=0 the chart line traces the exact same squiggly as drawLoading/drawEmpty.
+  // Center-out: the center of the chart resolves first, edges last, so the data
+  // line appears to bloom outward from the middle.
   const centerY = pad.top + chartH / 2
   const amplitude = chartH * LOADING_AMPLITUDE_RATIO
   const scroll = now_ms * LOADING_SCROLL_SPEED
   const morphY = chartReveal < 1
     ? (rawY: number, x: number) => {
         const t = Math.max(0, Math.min(1, (x - pad.left) / chartW))
+        const centerDist = Math.abs(t - 0.5) * 2 // 0 at center, 1 at edges
+        const localReveal = Math.max(0, Math.min(1, (chartReveal - centerDist * 0.4) / 0.6))
         const baseY = loadingY(t, centerY, amplitude, scroll)
-        return baseY + (rawY - baseY) * chartReveal
+        return baseY + (rawY - baseY) * localReveal
       }
     : (rawY: number, _x: number) => rawY
 

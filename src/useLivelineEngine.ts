@@ -78,7 +78,8 @@ const VALUE_SNAP_THRESHOLD = 0.001
 const ADAPTIVE_SPEED_BOOST = 0.2
 const MOMENTUM_GREEN: [number, number, number] = [34, 197, 94]
 const MOMENTUM_RED: [number, number, number] = [239, 68, 68]
-const CHART_REVEAL_SPEED = 0.14
+const CHART_REVEAL_SPEED = 0.14     // data → loading/empty (reverse)
+const CHART_REVEAL_SPEED_FWD = 0.09 // loading/empty → data (forward, slower for choreography)
 const PAUSE_PROGRESS_SPEED = 0.12
 const PAUSE_CATCHUP_SPEED = 0.08
 const PAUSE_CATCHUP_SPEED_FAST = 0.22
@@ -867,11 +868,18 @@ export function useLivelineEngine(
     const revealTarget = (!cfg.loading && hasData) ? 1 : 0
     chartRevealRef.current = noMotion
       ? revealTarget
-      : lerp(chartRevealRef.current, revealTarget, CHART_REVEAL_SPEED, dt)
+      : lerp(chartRevealRef.current, revealTarget,
+          revealTarget === 1 ? CHART_REVEAL_SPEED_FWD : CHART_REVEAL_SPEED, dt)
     if (Math.abs(chartRevealRef.current - revealTarget) < 0.005) {
       chartRevealRef.current = revealTarget
     }
     const chartReveal = chartRevealRef.current
+
+    // Reset range when reveal fully collapses — guarantees a fresh snap
+    // (not a slow lerp from stale values) when data reappears.
+    if (chartReveal < 0.01) {
+      rangeInitedRef.current = false
+    }
 
     // Data stash for reverse morph — keep drawing chart while it morphs back
     // to the squiggly shape (identical to loading/empty line at reveal=0)
