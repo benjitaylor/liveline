@@ -47,6 +47,7 @@ export function Liveline({
   onHover,
   cursor = 'crosshair',
   pulse = true,
+  lineWidth,
   className,
   style,
 }: LivelineProps) {
@@ -57,7 +58,11 @@ export function Liveline({
   const windowBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
   const [indicatorStyle, setIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
 
-  const palette = useMemo(() => resolveTheme(color, theme), [color, theme])
+  const palette = useMemo(() => {
+    const p = resolveTheme(color, theme)
+    if (lineWidth != null) p.lineWidth = lineWidth
+    return p
+  }, [color, theme, lineWidth])
   const isDark = theme === 'dark'
 
   // Resolve momentum prop: boolean enables auto-detect, string overrides
