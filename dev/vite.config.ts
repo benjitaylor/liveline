@@ -14,7 +14,6 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         demo: path.resolve(__dirname, 'demo.html'),
-        showcase: path.resolve(__dirname, 'showcase.html'),
       },
     },
   },
