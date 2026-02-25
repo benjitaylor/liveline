@@ -1369,7 +1369,10 @@ export function useLivelineEngine(
             displayBarMaxRef.current = rawBarMax
             barMaxInitedRef.current = true
           } else {
-            displayBarMaxRef.current = lerp(displayBarMaxRef.current, targetBarMaxRef.current, adaptiveSpeed, pausedDt)
+            const gap = Math.abs(displayBarMaxRef.current - targetBarMaxRef.current)
+            const gapRatio = displayBarMaxRef.current > 0 ? Math.min(gap / displayBarMaxRef.current, 1) : 1
+            const barSpeed = RANGE_LERP_SPEED + (1 - gapRatio) * RANGE_ADAPTIVE_BOOST
+            displayBarMaxRef.current = lerp(displayBarMaxRef.current, targetBarMaxRef.current, barSpeed, pausedDt)
             const barStripPx = barMode === 'default' ? barStripH : chartH * BAR_OVERLAY_MAX_RATIO
             const pxThreshold = barStripPx > 0 ? 0.5 * displayBarMaxRef.current / barStripPx : 0.001
             if (Math.abs(displayBarMaxRef.current - targetBarMaxRef.current) < pxThreshold) {

@@ -129,6 +129,7 @@ function Demo() {
   const [volatility, setVolatility] = useState<Volatility>('normal')
   const [tickRate, setTickRate] = useState(300)
   const [bars, setBars] = useState<BarPoint[]>([])
+  const [barMode, setBarMode] = useState<'default' | 'overlay'>('default')
   const [barLabels, setBarLabels] = useState(false)
   const barBucketSecs = 2
 
@@ -392,7 +393,6 @@ function Demo() {
         <Sep />
         <Toggle on={grid} onToggle={setGrid}>Grid</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
-        <Toggle on={barLabels} onToggle={setBarLabels}>Bar labels</Toggle>
       </Section>
 
       {/* Main chart */}
@@ -473,36 +473,14 @@ function Demo() {
         ))}
       </div>
 
-      {/* Bar chart — default mode */}
-      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginTop: 24, marginBottom: 8 }}>Volume bars (default)</p>
-      <div style={{
-        height: 320,
-        background: 'var(--fg-02)',
-        borderRadius: 12,
-        border: '1px solid var(--fg-06)',
-        padding: 8,
-        overflow: 'hidden',
-      }}>
-        <Liveline
-          data={data}
-          value={value}
-          loading={loading}
-          paused={paused}
-          theme={theme}
-          color={preset === 'crypto' ? '#f7931a' : undefined}
-          window={windowSecs}
-          formatValue={preset === 'crypto' ? formatCrypto : undefined}
-          grid={grid}
-          scrub={scrub}
-          bars={bars}
-          barMode="default"
-          barWidth={barBucketSecs}
-          barLabels={barLabels}
-        />
+      {/* Volume bars */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 24, marginBottom: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--fg-30)', margin: 0 }}>Volume bars</p>
+        <Btn active={barMode === 'default'} onClick={() => setBarMode('default')}>Default</Btn>
+        <Btn active={barMode === 'overlay'} onClick={() => setBarMode('overlay')}>Overlay</Btn>
+        <Sep />
+        <Toggle on={barLabels} onToggle={setBarLabels}>Labels</Toggle>
       </div>
-
-      {/* Bar chart — overlay mode */}
-      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginTop: 24, marginBottom: 8 }}>Volume bars (overlay)</p>
       <div style={{
         height: 320,
         background: 'var(--fg-02)',
@@ -512,18 +490,27 @@ function Demo() {
         overflow: 'hidden',
       }}>
         <Liveline
+          mode="candle"
           data={data}
           value={value}
+          candles={candles}
+          candleWidth={candleSecs}
+          liveCandle={liveCandle ?? undefined}
+          lineMode={chartType === 'line'}
+          lineData={data}
+          lineValue={value}
           loading={loading}
           paused={paused}
           theme={theme}
           color={preset === 'crypto' ? '#f7931a' : undefined}
           window={windowSecs}
+          windows={preset === 'crypto' ? CRYPTO_WINDOWS : undefined}
           formatValue={preset === 'crypto' ? formatCrypto : undefined}
+          onModeChange={(mode) => setChartType(mode)}
           grid={grid}
           scrub={scrub}
           bars={bars}
-          barMode="overlay"
+          barMode={barMode}
           barWidth={barBucketSecs}
           barLabels={barLabels}
         />
