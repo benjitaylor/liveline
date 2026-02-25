@@ -81,6 +81,7 @@ const BADGE_Y_LERP_TRANSITIONING = 0.5
 const MOMENTUM_COLOR_LERP = 0.12
 const WINDOW_TRANSITION_MS = 750
 const WINDOW_BUFFER = 0.05
+const WINDOW_BUFFER_NO_BADGE = 0.015
 const VALUE_SNAP_THRESHOLD = 0.001
 const ADAPTIVE_SPEED_BOOST = 0.2
 const MOMENTUM_GREEN: [number, number, number] = [34, 197, 94]
@@ -108,6 +109,7 @@ const LINE_SNAP_THRESHOLD = 0.001
 const RANGE_LERP_SPEED = 0.15
 const RANGE_ADAPTIVE_BOOST = 0.2
 const CANDLE_BUFFER = 0.05
+const CANDLE_BUFFER_NO_BADGE = 0.015
 
 // --- Extracted helper functions (pure computation, called inside draw loop) ---
 
@@ -964,6 +966,10 @@ export function useLivelineEngine(
       // CANDLE MODE PIPELINE
       // ═══════════════════════════════════════════════════════
 
+      // Badge is never visible in pure candle mode (only during line morph),
+      // so always use the smaller buffer to avoid dead space on the right.
+      const candleBuffer = CANDLE_BUFFER_NO_BADGE
+
       // Frozen now — prevent candles from scrolling during reverse morph
       if (hasData) frozenNowRef.current = Date.now() / 1000 - timeDebtRef.current
       const now = (hasData || chartReveal < 0.005)
@@ -1008,7 +1014,7 @@ export function useLivelineEngine(
         cwt.rangeFromMin = displayMinRef.current
         cwt.rangeFromMax = displayMaxRef.current
         const curWindow = displayWindowRef.current
-        const re = now + curWindow * CANDLE_BUFFER
+        const re = now + curWindow * candleBuffer
         const le = re - curWindow
         const targetVis: CandlePoint[] = []
         for (const c of effectiveCandles) {
@@ -1054,14 +1060,14 @@ export function useLivelineEngine(
       const windowResult = updateCandleWindowTransition(
         cfg.windowSecs, transition, displayWindowRef.current,
         displayMinRef.current, displayMaxRef.current,
-        now_ms, now, effectiveCandles, rawLive, candleWidthSecs, CANDLE_BUFFER,
+        now_ms, now, effectiveCandles, rawLive, candleWidthSecs, candleBuffer,
       )
       displayWindowRef.current = windowResult.windowSecs
       const windowSecs = windowResult.windowSecs
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      const rightEdge = now + windowSecs * CANDLE_BUFFER
+      const rightEdge = now + windowSecs * candleBuffer
       const leftEdge = rightEdge - windowSecs
 
       // --- Live candle OHLC lerp ---
@@ -1501,13 +1507,14 @@ export function useLivelineEngine(
 
     const chartW = w - pad.left - pad.right
 
-    // Dynamic buffer: when momentum arrows + badge are both on, ensure enough
-    // gap between the live dot and badge for the arrows to fit.
-    // Gap formula: buffer * chartW - 7. Need ~30px for arrows.
-    const needsArrowRoom = cfg.showMomentum
+    // Dynamic buffer: when badge is off, use a smaller buffer so the dot
+    // sits closer to the right edge. When momentum arrows + badge are both
+    // on, ensure enough gap for the arrows to fit.
+    const baseBuffer = cfg.showBadge ? WINDOW_BUFFER : WINDOW_BUFFER_NO_BADGE
+    const needsArrowRoom = cfg.showMomentum && cfg.showBadge
     const buffer = needsArrowRoom
-      ? Math.max(WINDOW_BUFFER, 37 / Math.max(chartW, 1))
-      : WINDOW_BUFFER
+      ? Math.max(baseBuffer, 37 / Math.max(chartW, 1))
+      : baseBuffer
 
     // Window transition
     const transition = windowTransitionRef.current
