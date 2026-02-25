@@ -1,6 +1,6 @@
-import { useRef, useState, useLayoutEffect, useMemo } from 'react'
+import { useRef, useState, useLayoutEffect, useMemo, useCallback } from 'react'
 import type { LivelineProps, Momentum, DegenOptions } from './types'
-import { resolveTheme } from './theme'
+import { resolveTheme, resolveSeriesPalettes, SERIES_COLORS } from './theme'
 import { useLivelineEngine } from './useLivelineEngine'
 
 const defaultFormatValue = (v: number) => v.toFixed(2)
@@ -16,6 +16,7 @@ const defaultFormatTime = (t: number) => {
 export function Liveline({
   data,
   value,
+  series: seriesProp,
   theme = 'dark',
   color = '#3b82f6',
   window: windowSecs = 30,
@@ -55,6 +56,8 @@ export function Liveline({
   lineData,
   lineValue,
   onModeChange,
+  onSeriesToggle,
+  seriesToggleCompact = false,
   className,
   style,
 }: LivelineProps) {
@@ -67,9 +70,32 @@ export function Liveline({
   const modeBarRef = useRef<HTMLDivElement>(null)
   const modeBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
   const [modeIndicatorStyle, setModeIndicatorStyle] = useState<{ left: number; width: number } | null>(null)
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
+  const lastSeriesPropRef = useRef(seriesProp)
+  if (seriesProp && seriesProp.length > 0) lastSeriesPropRef.current = seriesProp
 
   const palette = useMemo(() => resolveTheme(color, theme), [color, theme])
   const isDark = theme === 'dark'
+  const isMultiSeries = seriesProp != null && seriesProp.length > 0
+  const showSeriesToggle = (lastSeriesPropRef.current?.length ?? 0) > 1
+
+  // Per-series palettes (memoized on series ids + colors + theme)
+  const seriesPalettes = useMemo(() => {
+    if (!seriesProp || seriesProp.length === 0) return null
+    return resolveSeriesPalettes(seriesProp, theme)
+  }, [seriesProp, theme])
+
+  // Normalized multi-series config for the engine
+  const multiSeries = useMemo(() => {
+    if (!seriesProp || !seriesPalettes) return undefined
+    return seriesProp.map((s, i) => ({
+      id: s.id,
+      data: s.data,
+      value: s.value,
+      palette: seriesPalettes.get(s.id) ?? resolveTheme(s.color || SERIES_COLORS[i % SERIES_COLORS.length], theme),
+      label: s.label,
+    }))
+  }, [seriesProp, seriesPalettes, theme])
 
   // Resolve momentum prop: boolean enables auto-detect, string overrides
   const showMomentum = momentum !== false
@@ -128,6 +154,25 @@ export function Liveline({
     }
   }, [activeMode, onModeChange])
 
+  // Series toggle handler — prevent hiding the last visible series
+  const handleSeriesToggle = useCallback((id: string) => {
+    setHiddenSeries(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+        onSeriesToggle?.(id, true)
+      } else {
+        // Count visible series — don't hide last one
+        const totalSeries = seriesProp?.length ?? 0
+        const visibleCount = totalSeries - next.size
+        if (visibleCount <= 1) return prev
+        next.add(id)
+        onSeriesToggle?.(id, false)
+      }
+      return next
+    })
+  }, [seriesProp?.length, onSeriesToggle])
+
   const ws = windowStyle ?? 'default'
 
   useLivelineEngine(canvasRef, containerRef, {
@@ -137,10 +182,10 @@ export function Liveline({
     windowSecs: effectiveWindowSecs,
     lerpSpeed,
     showGrid: grid,
-    showBadge: badge,
-    showMomentum,
+    showBadge: isMultiSeries ? false : badge,
+    showMomentum: isMultiSeries ? false : showMomentum,
     momentumOverride,
-    showFill: fill,
+    showFill: isMultiSeries ? false : fill,
     referenceLine,
     formatValue,
     formatTime,
@@ -149,7 +194,7 @@ export function Liveline({
     showPulse: pulse,
     scrub,
     exaggerate,
-    degenOptions,
+    degenOptions: isMultiSeries ? undefined : degenOptions,
     badgeTail,
     badgeVariant,
     tooltipY,
@@ -167,6 +212,9 @@ export function Liveline({
     lineMode,
     lineData,
     lineValue,
+    multiSeries,
+    isMultiSeries,
+    hiddenSeriesIds: hiddenSeries,
   })
 
   const cursorStyle = scrub ? cursor : 'default'
@@ -195,8 +243,8 @@ export function Liveline({
         />
       )}
 
-      {/* Control bars row — window pills + mode toggle side by side */}
-      {((windows && windows.length > 0) || onModeChange) && (
+      {/* Control bars row — window pills + mode toggle + series chips side by side */}
+      {((windows && windows.length > 0) || onModeChange || showSeriesToggle) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, marginLeft: pad.left }}>
           {/* Time window controls */}
           {windows && windows.length > 0 && (
@@ -269,22 +317,23 @@ export function Liveline({
               style={{
                 position: 'relative',
                 display: 'inline-flex',
-                gap: 2,
-                background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-                borderRadius: 6,
-                padding: 2,
+                gap: ws === 'text' ? 4 : 2,
+                background: ws === 'text' ? 'transparent'
+                  : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                borderRadius: ws === 'rounded' ? 999 : 6,
+                padding: ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2,
               }}
             >
               {/* Sliding indicator */}
-              {modeIndicatorStyle && (
+              {ws !== 'text' && modeIndicatorStyle && (
                 <div style={{
                   position: 'absolute',
-                  top: 2,
+                  top: ws === 'rounded' ? 3 : 2,
                   left: modeIndicatorStyle.left,
                   width: modeIndicatorStyle.width,
-                  height: 'calc(100% - 4px)',
+                  height: ws === 'rounded' ? 'calc(100% - 6px)' : 'calc(100% - 4px)',
                   background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)',
-                  borderRadius: 4,
+                  borderRadius: ws === 'rounded' ? 999 : 4,
                   transition: 'left 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
                   pointerEvents: 'none' as const,
                 }} />
@@ -300,7 +349,7 @@ export function Liveline({
                   position: 'relative',
                   zIndex: 1,
                   padding: '5px 7px',
-                  borderRadius: 4,
+                  borderRadius: ws === 'rounded' ? 999 : 4,
                   border: 'none',
                   cursor: 'pointer',
                   background: 'transparent',
@@ -329,7 +378,7 @@ export function Liveline({
                   position: 'relative',
                   zIndex: 1,
                   padding: '5px 7px',
-                  borderRadius: 4,
+                  borderRadius: ws === 'rounded' ? 999 : 4,
                   border: 'none',
                   cursor: 'pointer',
                   background: 'transparent',
@@ -348,6 +397,64 @@ export function Liveline({
                     fill={activeMode === 'candle' ? activeColor : inactiveColor} />
                 </svg>
               </button>
+            </div>
+          )}
+
+          {/* Series toggle chips */}
+          {showSeriesToggle && (
+            <div style={{
+              display: 'inline-flex',
+              gap: ws === 'text' ? 4 : 2,
+              background: ws === 'text' ? 'transparent'
+                : isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+              borderRadius: ws === 'rounded' ? 999 : 6,
+              padding: ws === 'text' ? 0 : ws === 'rounded' ? 3 : 2,
+              opacity: isMultiSeries ? 1 : 0,
+              transition: 'opacity 0.4s',
+              pointerEvents: isMultiSeries ? 'auto' : 'none',
+            }}>
+              {(lastSeriesPropRef.current ?? []).map((s, si) => {
+                const isHidden = hiddenSeries.has(s.id)
+                const seriesColor = s.color || SERIES_COLORS[si % SERIES_COLORS.length]
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => handleSeriesToggle(s.id)}
+                    style={{
+                      position: 'relative',
+                      zIndex: 1,
+                      fontSize: 11,
+                      padding: seriesToggleCompact
+                        ? (ws === 'text' ? '2px 4px' : '5px 7px')
+                        : (ws === 'text' ? '2px 6px' : '3px 8px'),
+                      borderRadius: ws === 'rounded' ? 999 : 4,
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      fontWeight: 500,
+                      background: isHidden ? 'transparent' : (ws === 'text' ? 'transparent' : (isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.035)')),
+                      color: isHidden ? inactiveColor : activeColor,
+                      opacity: isHidden ? 0.4 : 1,
+                      transition: 'opacity 0.2s, background 0.15s, color 0.2s',
+                      lineHeight: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: seriesToggleCompact ? 0 : 4,
+                    }}
+                  >
+                    <span style={{
+                      width: seriesToggleCompact ? 8 : 6,
+                      height: seriesToggleCompact ? 8 : 6,
+                      borderRadius: '50%',
+                      background: seriesColor,
+                      flexShrink: 0,
+                      opacity: isHidden ? 0.4 : 1,
+                      transition: 'opacity 0.2s',
+                    }} />
+                    {!seriesToggleCompact && (s.label ?? s.id)}
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>

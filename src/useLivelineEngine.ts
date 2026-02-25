@@ -1,11 +1,12 @@
 import { useRef, useEffect, useCallback } from 'react'
-import type { LivelinePoint, LivelinePalette, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
+import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
 import { interpolateAtTime } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
-import { drawFrame, drawCandleFrame, FADE_EDGE_WIDTH } from './draw'
+import { drawFrame, drawCandleFrame, drawMultiFrame, FADE_EDGE_WIDTH } from './draw'
+import type { MultiSeriesEntry } from './draw'
 import { drawLoading } from './draw/loading'
 import { drawEmpty } from './draw/empty'
 import { createOrderbookState } from './draw/orderbook'
@@ -52,6 +53,17 @@ interface EngineConfig {
   lineMode?: boolean
   lineData?: LivelinePoint[]
   lineValue?: number
+
+  // Multi-series mode
+  multiSeries?: Array<{
+    id: string
+    data: LivelinePoint[]
+    value: number
+    palette: LivelinePalette
+    label?: string
+  }>
+  isMultiSeries?: boolean
+  hiddenSeriesIds?: Set<string>
 }
 
 interface BadgeEls {
@@ -84,6 +96,7 @@ const PAUSE_PROGRESS_SPEED = 0.12
 const PAUSE_CATCHUP_SPEED = 0.08
 const PAUSE_CATCHUP_SPEED_FAST = 0.22
 const LOADING_ALPHA_SPEED = 0.14
+const SERIES_TOGGLE_SPEED = 0.10
 
 // --- Candle-specific constants ---
 const CANDLE_LERP_SPEED = 0.25
@@ -553,6 +566,8 @@ export function useLivelineEngine(
 
   // Animation state (persistent across frames, no allocations)
   const displayValueRef = useRef(config.value)
+  const displayValuesRef = useRef<Map<string, number>>(new Map())
+  const seriesAlphaRef = useRef<Map<string, number>>(new Map())
   const displayMinRef = useRef(0)
   const displayMaxRef = useRef(0)
   const targetMinRef = useRef(0)
@@ -584,6 +599,7 @@ export function useLivelineEngine(
   const hoverXRef = useRef<number | null>(null)
   const scrubAmountRef = useRef(0) // 0 = not scrubbing, 1 = fully scrubbing
   const lastHoverRef = useRef<{ x: number; value: number; time: number } | null>(null)
+  const lastHoverEntriesRef = useRef<{ color: string; label: string; value: number }[]>([])
 
   // Reveal state (loading → chart morph)
   const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
@@ -594,11 +610,13 @@ export function useLivelineEngine(
 
   // Data stash for reverse morph (chart → flat line when data disappears)
   const lastDataRef = useRef<LivelinePoint[]>([])
+  const lastMultiSeriesRef = useRef<Array<{ id: string; data: LivelinePoint[]; value: number; palette: LivelinePalette; label?: string }>>([])
   const frozenNowRef = useRef(0)
 
   // Pause data snapshot — freeze visible data when pausing to prevent
   // consumer-side pruning from eroding the left edge of the line
   const pausedDataRef = useRef<LivelinePoint[] | null>(null)
+  const pausedMultiDataRef = useRef<Map<string, { data: LivelinePoint[]; value: number }> | null>(null)
 
   // Loading ↔ empty crossfade
   const loadingAlphaRef = useRef(config.loading ? 1 : 0)
@@ -818,6 +836,17 @@ export function useLivelineEngine(
         pausedLineDataRef.current = null
         pausedLineValueRef.current = null
       }
+    } else if (cfg.isMultiSeries && cfg.multiSeries) {
+      if (cfg.paused && pausedMultiDataRef.current === null) {
+        const snap = new Map<string, { data: LivelinePoint[]; value: number }>()
+        for (const s of cfg.multiSeries) {
+          if (s.data.length >= 2) snap.set(s.id, { data: s.data.slice(), value: s.value })
+        }
+        if (snap.size > 0) pausedMultiDataRef.current = snap
+      }
+      if (!cfg.paused) {
+        pausedMultiDataRef.current = null
+      }
     } else {
       if (cfg.paused && pausedDataRef.current === null && cfg.data.length >= 2) {
         pausedDataRef.current = cfg.data.slice()
@@ -829,7 +858,8 @@ export function useLivelineEngine(
 
     const points = isCandle ? ([] as LivelinePoint[]) : (pausedDataRef.current ?? cfg.data)
     const effectiveCandles = isCandle ? (pausedCandlesRef.current ?? (cfg.candles ?? [])) : ([] as CandlePoint[])
-    const hasData = isCandle ? effectiveCandles.length >= 2 : points.length >= 2
+    const hasMultiData = cfg.isMultiSeries && cfg.multiSeries ? cfg.multiSeries.some(s => s.data.length >= 2) : false
+    const hasData = isCandle ? effectiveCandles.length >= 2 : (hasMultiData || points.length >= 2)
     const pad = cfg.padding
     const chartH = h - pad.top - pad.bottom
 
@@ -884,12 +914,23 @@ export function useLivelineEngine(
     // Data stash for reverse morph — keep drawing chart while it morphs back
     // to the squiggly shape (identical to loading/empty line at reveal=0)
     let useStash: boolean
+    let useMultiStash = false
     if (isCandle) {
       useStash = !hasData && chartReveal > 0.005 && lastCandlesRef.current.length > 0
       // Candle stash updated inside candle pipeline after computing visible
     } else {
-      useStash = !hasData && chartReveal > 0.005 && lastDataRef.current.length >= 2
-      if (hasData) lastDataRef.current = points
+      // Multi-series stash
+      useMultiStash = !hasData && chartReveal > 0.005 && lastMultiSeriesRef.current.length > 0
+      if (hasMultiData && cfg.multiSeries) {
+        lastMultiSeriesRef.current = cfg.multiSeries.map(s => ({
+          id: s.id, data: s.data.slice(), value: s.value, palette: s.palette, label: s.label,
+        }))
+      }
+      // Clear multi stash when single-series data arrives
+      if (hasData && !cfg.isMultiSeries) lastMultiSeriesRef.current = []
+
+      useStash = !useMultiStash && !hasData && chartReveal > 0.005 && lastDataRef.current.length >= 2
+      if (hasData && !cfg.isMultiSeries) lastDataRef.current = points
     }
 
     // Update lineModeProg even during early return — prevents the
@@ -915,10 +956,11 @@ export function useLivelineEngine(
       }
     }
 
-    if (!hasData && !useStash) {
+    if (!hasData && !useStash && !useMultiStash) {
       // No chart pipeline — draw loading or empty as the sole visual.
-      const loadingColor = isCandle
-        ? cfg.palette.gridLabel  // match morph line's grey at colorBlend=0 (BUG #1)
+      // Grey loading line for candle mode and multi-series (no single accent color)
+      const loadingColor = (isCandle || cfg.isMultiSeries || lastMultiSeriesRef.current.length > 0)
+        ? cfg.palette.gridLabel
         : undefined
       if (loadingAlpha > 0.01) {
         drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha, loadingColor)
@@ -1393,6 +1435,277 @@ export function useLivelineEngine(
           badgeRef.current.container.style.display = 'none'
         }
       }
+
+    } else if ((cfg.isMultiSeries && cfg.multiSeries && cfg.multiSeries.length > 0) || useMultiStash) {
+    // ═══════════════════════════════════════════════════════
+    // MULTI-SERIES LINE MODE PIPELINE
+    // ═══════════════════════════════════════════════════════
+
+    const effectiveMultiSeries = useMultiStash ? lastMultiSeriesRef.current : cfg.multiSeries!
+
+    // Reserve just enough right-side space so endpoint labels don't overlap
+    // grid value text (which starts at w - pad.right + 8). Labels are drawn
+    // at lineEnd + 6, so overlap = labelW + 6 - 8 = labelW - 2.
+    // Scale with chartReveal so layout doesn't shift during loading collapse.
+    let labelReserve = 0
+    if (effectiveMultiSeries.some(s => s.label)) {
+      ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
+      let maxLabelW = 0
+      for (const s of effectiveMultiSeries) {
+        if (s.label) {
+          const lw = ctx.measureText(s.label).width
+          if (lw > maxLabelW) maxLabelW = lw
+        }
+      }
+      labelReserve = Math.max(0, maxLabelW - 2) * chartReveal
+    }
+
+    const chartW = w - pad.left - pad.right - labelReserve
+    const buffer = WINDOW_BUFFER
+
+    // Clean stale entries from displayValuesRef (series that were removed)
+    if (!useMultiStash) {
+      const currentIds = new Set(effectiveMultiSeries.map(s => s.id))
+      for (const key of displayValuesRef.current.keys()) {
+        if (!currentIds.has(key)) displayValuesRef.current.delete(key)
+      }
+    }
+
+    // Use first series data for window transition seeding
+    const firstSeries = effectiveMultiSeries[0]
+    const transition = windowTransitionRef.current
+    if (hasData) frozenNowRef.current = Date.now() / 1000 - timeDebtRef.current
+    const now = useMultiStash ? frozenNowRef.current : Date.now() / 1000 - timeDebtRef.current
+
+    // Per-series smooth values (freeze when using stash)
+    const smoothValues = new Map<string, number>()
+    for (const s of effectiveMultiSeries) {
+      let dv = displayValuesRef.current.get(s.id)
+      if (dv === undefined) dv = s.value
+      if (!useMultiStash) {
+        const adaptiveSpeed = computeAdaptiveSpeed(
+          s.value, dv,
+          displayMinRef.current, displayMaxRef.current,
+          cfg.lerpSpeed, noMotion,
+        )
+        dv = lerp(dv, s.value, adaptiveSpeed, pausedDt)
+        const prevRange = displayMaxRef.current - displayMinRef.current || 1
+        if (Math.abs(dv - s.value) < prevRange * VALUE_SNAP_THRESHOLD) dv = s.value
+        displayValuesRef.current.set(s.id, dv)
+      }
+      smoothValues.set(s.id, dv)
+    }
+
+    // Per-series visibility alpha (lerp toward 0 for hidden, 1 for visible)
+    const hiddenIds = cfg.hiddenSeriesIds
+    const seriesAlphas = seriesAlphaRef.current
+    for (const s of effectiveMultiSeries) {
+      let alpha = seriesAlphas.get(s.id) ?? 1
+      const target = hiddenIds?.has(s.id) ? 0 : 1
+      alpha = noMotion ? target : lerp(alpha, target, SERIES_TOGGLE_SPEED, pausedDt)
+      if (alpha < 0.01) alpha = 0
+      if (alpha > 0.99) alpha = 1
+      seriesAlphas.set(s.id, alpha)
+    }
+
+    // Window transition — seed with all series data for accurate range
+    const firstData = pausedMultiDataRef.current?.get(firstSeries.id)?.data ?? firstSeries.data
+    const windowResult = updateWindowTransition(
+      cfg, transition, displayWindowRef.current,
+      displayMinRef.current, displayMaxRef.current,
+      noMotion, now_ms, now, firstData, smoothValues.get(firstSeries.id) ?? firstSeries.value, buffer,
+    )
+    // Override range target with union of ALL series (not just first)
+    if (transition.startMs > 0 && effectiveMultiSeries.length > 1) {
+      const targetRightEdge = now + cfg.windowSecs * buffer
+      const targetLeftEdge = targetRightEdge - cfg.windowSecs
+      let unionMin = Infinity
+      let unionMax = -Infinity
+      for (const s of effectiveMultiSeries) {
+        const sData = pausedMultiDataRef.current?.get(s.id)?.data ?? s.data
+        const sv = smoothValues.get(s.id) ?? s.value
+        const targetVisible: LivelinePoint[] = []
+        for (const p of sData) {
+          if (p.time >= targetLeftEdge - 2 && p.time <= targetRightEdge) targetVisible.push(p)
+        }
+        if (targetVisible.length > 0) {
+          const range = computeRange(targetVisible, sv, cfg.referenceLine?.value, cfg.exaggerate)
+          if (range.min < unionMin) unionMin = range.min
+          if (range.max > unionMax) unionMax = range.max
+        }
+      }
+      if (isFinite(unionMin) && isFinite(unionMax)) {
+        transition.rangeToMin = unionMin
+        transition.rangeToMax = unionMax
+      }
+    }
+    displayWindowRef.current = windowResult.windowSecs
+    const windowSecs = windowResult.windowSecs
+    const windowTransProgress = windowResult.windowTransProgress
+    const isWindowTransitioning = transition.startMs > 0
+
+    const rightEdge = now + windowSecs * buffer
+    const leftEdge = rightEdge - windowSecs
+    const filterRight = rightEdge - (rightEdge - now) * pauseProgress
+
+    // Build per-series visible arrays and compute global range
+    // Use paused snapshots when available to prevent left-edge erosion
+    // Exclude hidden series (alpha < 0.01) from range so Y-axis adjusts
+    const seriesEntries: MultiSeriesEntry[] = []
+    let globalMin = Infinity
+    let globalMax = -Infinity
+    for (const s of effectiveMultiSeries) {
+      const snap = pausedMultiDataRef.current?.get(s.id)
+      const seriesData = snap?.data ?? s.data
+      const visible: LivelinePoint[] = []
+      for (const p of seriesData) {
+        if (p.time >= leftEdge - 2 && p.time <= filterRight) visible.push(p)
+      }
+      const sv = smoothValues.get(s.id) ?? s.value
+      const alpha = seriesAlphas.get(s.id) ?? 1
+      if (visible.length >= 2) {
+        // Only include in range if series is at least partially visible
+        if (alpha > 0.01) {
+          const range = computeRange(visible, sv, cfg.referenceLine?.value, cfg.exaggerate)
+          if (range.min < globalMin) globalMin = range.min
+          if (range.max > globalMax) globalMax = range.max
+        }
+        // Always push to entries (drawMultiFrame skips via alpha)
+        seriesEntries.push({ visible, smoothValue: sv, palette: s.palette, label: s.label, alpha })
+      }
+    }
+
+    if (seriesEntries.length === 0) {
+      // No visible data — draw loading/empty fallback (matching single-series behavior)
+      // Grey loading line for multi-series (no single accent color to use)
+      if (loadingAlpha > 0.01) {
+        drawLoading(ctx, w, h, pad, cfg.palette, now_ms, loadingAlpha, cfg.palette.gridLabel)
+      }
+      if ((1 - loadingAlpha) > 0.01) {
+        drawEmpty(ctx, w, h, pad, cfg.palette, 1 - loadingAlpha, now_ms, false, cfg.emptyText)
+      }
+      ctx.save()
+      ctx.globalCompositeOperation = 'destination-out'
+      const fadeGrad = ctx.createLinearGradient(pad.left, 0, pad.left + FADE_EDGE_WIDTH, 0)
+      fadeGrad.addColorStop(0, 'rgba(0, 0, 0, 1)')
+      fadeGrad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+      ctx.fillStyle = fadeGrad
+      ctx.fillRect(0, 0, pad.left + FADE_EDGE_WIDTH, h)
+      ctx.restore()
+      if (badgeRef.current) badgeRef.current.container.style.display = 'none'
+      rafRef.current = requestAnimationFrame(draw)
+      return
+    }
+
+    // Smooth global range
+    const computedRange = { min: isFinite(globalMin) ? globalMin : 0, max: isFinite(globalMax) ? globalMax : 1 }
+    const adaptiveSpeed = cfg.lerpSpeed + ADAPTIVE_SPEED_BOOST * 0.5
+    const rangeResult = updateRange(
+      computedRange, rangeInitedRef.current,
+      targetMinRef.current, targetMaxRef.current,
+      displayMinRef.current, displayMaxRef.current,
+      isWindowTransitioning, windowTransProgress, transition,
+      adaptiveSpeed, chartH, pausedDt,
+    )
+    rangeInitedRef.current = rangeResult.rangeInited
+    targetMinRef.current = rangeResult.targetMin
+    targetMaxRef.current = rangeResult.targetMax
+    displayMinRef.current = rangeResult.displayMin
+    displayMaxRef.current = rangeResult.displayMax
+    const { minVal, maxVal, valRange } = rangeResult
+
+    const layout: ChartLayout = {
+      w, h, pad,
+      chartW, chartH,
+      leftEdge, rightEdge,
+      minVal, maxVal, valRange,
+      toX: (t: number) => pad.left + ((t - leftEdge) / (rightEdge - leftEdge)) * chartW,
+      toY: (v: number) => pad.top + (1 - (v - minVal) / valRange) * chartH,
+    }
+
+    // Hover — interpolate value at hover time for each series
+    const hoverPx = hoverXRef.current
+    let drawHoverX: number | null = null
+    let drawHoverTime: number | null = null
+    let isActiveHover = false
+    let hoverEntries: { color: string; label: string; value: number }[] = []
+
+    if (hoverPx !== null && hoverPx >= pad.left && hoverPx <= w - pad.right) {
+      const maxHoverX = layout.toX(now)
+      const clampedX = Math.min(hoverPx, maxHoverX)
+      const t = leftEdge + ((clampedX - pad.left) / chartW) * (rightEdge - leftEdge)
+      drawHoverX = clampedX
+      drawHoverTime = t
+      isActiveHover = true
+
+      for (const entry of seriesEntries) {
+        // Skip hidden series from crosshair tooltip
+        if ((entry.alpha ?? 1) < 0.5) continue
+        const v = interpolateAtTime(entry.visible, t)
+        if (v !== null) {
+          hoverEntries.push({ color: entry.palette.line, label: entry.label ?? '', value: v })
+        }
+      }
+      lastHoverRef.current = { x: clampedX, value: hoverEntries[0]?.value ?? 0, time: t }
+      lastHoverEntriesRef.current = hoverEntries
+      cfg.onHover?.({ time: t, value: hoverEntries[0]?.value ?? 0, x: clampedX, y: layout.toY(hoverEntries[0]?.value ?? 0) })
+    }
+
+    // Scrub amount
+    const scrubTarget = isActiveHover ? 1 : 0
+    if (noMotion) {
+      scrubAmountRef.current = scrubTarget
+    } else {
+      scrubAmountRef.current += (scrubTarget - scrubAmountRef.current) * SCRUB_LERP_SPEED
+      if (scrubAmountRef.current < 0.01) scrubAmountRef.current = 0
+      if (scrubAmountRef.current > 0.99) scrubAmountRef.current = 1
+    }
+
+    // Fade-out: use last known hover position + cached entries
+    if (!isActiveHover && scrubAmountRef.current > 0 && lastHoverRef.current) {
+      drawHoverX = lastHoverRef.current.x
+      drawHoverTime = lastHoverRef.current.time
+      hoverEntries = lastHoverEntriesRef.current
+    }
+
+    // Draw multi-series frame
+    drawMultiFrame(ctx, layout, {
+      series: seriesEntries,
+      now,
+      showGrid: cfg.showGrid,
+      showPulse: cfg.showPulse,
+      referenceLine: cfg.referenceLine,
+      hoverX: drawHoverX,
+      hoverTime: drawHoverTime,
+      hoverEntries,
+      scrubAmount: scrubAmountRef.current,
+      windowSecs,
+      formatValue: cfg.formatValue,
+      formatTime: cfg.formatTime,
+      gridState: gridStateRef.current,
+      timeAxisState: timeAxisStateRef.current,
+      dt,
+      targetWindowSecs: cfg.windowSecs,
+      tooltipY: cfg.tooltipY,
+      tooltipOutline: cfg.tooltipOutline,
+      chartReveal,
+      pauseProgress,
+      now_ms,
+      primaryPalette: cfg.palette,
+    })
+
+    // During reverse morph (chart → loading/empty), overlay the empty text
+    // as chartReveal drops — identical to single-series behavior
+    const bgAlpha = 1 - chartReveal
+    if (bgAlpha > 0.01 && revealTarget === 0 && !cfg.loading) {
+      const bgEmptyAlpha = (1 - loadingAlpha) * bgAlpha
+      if (bgEmptyAlpha > 0.01) {
+        drawEmpty(ctx, w, h, pad, cfg.palette, bgEmptyAlpha, now_ms, true, cfg.emptyText)
+      }
+    }
+
+    // Hide badge in multi-series mode
+    if (badgeRef.current) badgeRef.current.container.style.display = 'none'
 
     } else {
     // ═══════════════════════════════════════════════════════

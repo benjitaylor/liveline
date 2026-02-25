@@ -46,9 +46,20 @@ export interface DegenOptions {
   downMomentum?: boolean
 }
 
+export interface LivelineSeries {
+  id: string
+  data: LivelinePoint[]
+  value: number
+  color: string
+  label?: string
+}
+
 export interface LivelineProps {
   data: LivelinePoint[]
   value: number
+
+  // Multi-series mode — when provided, overrides data/value/color
+  series?: LivelineSeries[]
 
   // Appearance
   theme?: ThemeMode
@@ -106,6 +117,8 @@ export interface LivelineProps {
   lineData?: LivelinePoint[]      // Tick-level data for density transition
   lineValue?: number              // Current tick value for density transition
   onModeChange?: (mode: 'line' | 'candle') => void  // Built-in toggle callback
+  onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
+  seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
 
   className?: string
   style?: CSSProperties

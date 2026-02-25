@@ -5,6 +5,7 @@ export type { LivelineTransitionProps } from './LivelineTransition'
 export type {
   LivelineProps,
   LivelinePoint,
+  LivelineSeries,
   ReferenceLine,
   Momentum,
   ThemeMode,

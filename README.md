@@ -1,6 +1,6 @@
 # Liveline
 
-Real-time animated charts for React. Line and candlestick modes, canvas-rendered, 60fps, zero CSS imports.
+Real-time animated charts for React. Line, multi-series, and candlestick modes, canvas-rendered, 60fps, zero CSS imports.
 
 ## Install
 
@@ -82,6 +82,16 @@ The component fills its parent container. Set a height on the parent. Pass `data
 When `mode="candle"`, pass `candles` (committed OHLC bars) and `liveCandle` (the current bar, updated every tick). `candleWidth` sets the time bucket in seconds. The `lineMode` prop smoothly morphs between candle and line views — candle bodies collapse to close price, then the line extends outward. Provide `lineData` and `lineValue` (tick-level resolution) for a smooth density transition during the morph.
 
 The `onModeChange` prop renders a built-in line/candle toggle next to the time window buttons.
+
+**Multi-series**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `series` | `LivelineSeries[]` | — | Multiple overlapping lines `{ id, data, value, color, label? }` |
+| `onSeriesToggle` | `(id, visible) => void` | — | Callback when a series is toggled via built-in chips |
+| `seriesToggleCompact` | `boolean` | `false` | Show only colored dots in toggle (no text labels) |
+
+Pass `series` instead of `data`/`value` to draw multiple lines sharing the same axes. Each series gets its own color, label, and endpoint dot. Toggle chips appear automatically when there are 2+ series — clicking one hides/shows that line with a smooth fade. The Y-axis range adjusts when series are hidden. Badge, momentum arrows, and fill are disabled in multi-series mode.
 
 **State**
 
@@ -209,6 +219,30 @@ When `loading` flips to `false` with data present, the loading line morphs into 
 />
 ```
 
+### Multi-series (prediction market)
+
+```tsx
+<Liveline
+  data={[]}
+  value={0}
+  series={[
+    { id: 'yes', data: yesData, value: yesValue, color: '#3b82f6', label: 'Yes' },
+    { id: 'no', data: noData, value: noValue, color: '#ef4444', label: 'No' },
+  ]}
+  grid
+  scrub
+  pulse
+  windowStyle="rounded"
+  formatValue={(v) => v.toFixed(1) + '%'}
+  onSeriesToggle={(id, visible) => console.log(id, visible)}
+  windows={[
+    { label: '10s', secs: 10 },
+    { label: '30s', secs: 30 },
+    { label: '1m', secs: 60 },
+  ]}
+/>
+```
+
 ### Loading + pause
 
 ```tsx
@@ -241,6 +275,7 @@ When `loading` flips to `false` with data present, the loading line morphs into 
 - **Frame-rate-independent lerp** on value, Y-axis range, badge color, and scrub opacity
 - **Candlestick rendering** — OHLC bodies + wicks with bull/bear coloring, smooth live candle updates
 - **Line/candle morph** — candle bodies collapse to close price, morph line extends center-out, coordinated alpha crossfade
+- **Multi-series** — overlapping lines with per-series toggle, smooth alpha fade, and dynamic Y-axis range
 - **ResizeObserver** tracks container size — no per-frame layout reads
 - **Theme derivation** — full palette from one accent color + light/dark mode
 - **Binary search interpolation** for hover value lookup

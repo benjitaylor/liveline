@@ -1,4 +1,4 @@
-import type { ThemeMode, LivelinePalette } from './types'
+import type { ThemeMode, LivelinePalette, LivelineSeries } from './types'
 
 /** Parse any CSS color string to [r, g, b]. Handles hex (#rgb, #rrggbb), rgb(), rgba(). */
 export function parseColorRgb(color: string): [number, number, number] {
@@ -76,4 +76,30 @@ export function resolveTheme(color: string, mode: ThemeMode): LivelinePalette {
     valueFont: '600 11px "SF Mono", Menlo, monospace',
     badgeFont: '500 11px "SF Mono", Menlo, monospace',
   }
+}
+
+/** Default color palette for multi-series when no colors specified. */
+export const SERIES_COLORS = [
+  '#3b82f6', // blue
+  '#ef4444', // red
+  '#22c55e', // green
+  '#f59e0b', // amber
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+]
+
+/** Derive per-series palettes from series definitions. */
+export function resolveSeriesPalettes(
+  series: LivelineSeries[],
+  mode: ThemeMode,
+): Map<string, LivelinePalette> {
+  const map = new Map<string, LivelinePalette>()
+  for (let i = 0; i < series.length; i++) {
+    const s = series[i]
+    const color = s.color || SERIES_COLORS[i % SERIES_COLORS.length]
+    map.set(s.id, resolveTheme(color, mode))
+  }
+  return map
 }

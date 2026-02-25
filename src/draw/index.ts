@@ -1,8 +1,9 @@
 import type { LivelinePalette, ChartLayout, LivelinePoint, Momentum, ReferenceLine, OrderbookData, DegenOptions, CandlePoint } from '../types'
 import { drawGrid, type GridState } from './grid'
 import { drawLine } from './line'
-import { drawDot, drawArrows } from './dot'
-import { drawCrosshair } from './crosshair'
+import { drawDot, drawArrows, drawSimpleDot, drawMultiDot } from './dot'
+import { drawCrosshair, drawMultiCrosshair } from './crosshair'
+import type { MultiSeriesHoverEntry } from './crosshair'
 import { drawReferenceLine } from './referenceLine'
 import { drawTimeAxis, type TimeAxisState } from './timeAxis'
 import { drawOrderbook, type OrderbookState } from './orderbook'
@@ -226,6 +227,188 @@ export function drawFrame(
   // Restore shake translate
   if (shake && (shakeX !== 0 || shakeY !== 0)) {
     ctx.restore()
+  }
+}
+
+// ─── Multi-series draw orchestration ──────────────────────────────────────
+
+export interface MultiSeriesEntry {
+  visible: LivelinePoint[]
+  smoothValue: number
+  palette: LivelinePalette
+  label?: string
+  alpha?: number  // series visibility alpha (0 = hidden, 1 = visible)
+}
+
+export interface MultiSeriesDrawOptions {
+  series: MultiSeriesEntry[]
+  now: number
+  showGrid: boolean
+  showPulse: boolean
+  referenceLine?: ReferenceLine
+  hoverX: number | null
+  hoverTime: number | null
+  hoverEntries: MultiSeriesHoverEntry[]
+  scrubAmount: number
+  windowSecs: number
+  formatValue: (v: number) => string
+  formatTime: (t: number) => string
+  gridState: GridState
+  timeAxisState: TimeAxisState
+  dt: number
+  targetWindowSecs: number
+  tooltipY: number
+  tooltipOutline: boolean
+  chartReveal: number
+  pauseProgress: number
+  now_ms: number
+  /** Primary palette (from first series) for grid/axis/crosshair colors */
+  primaryPalette: LivelinePalette
+}
+
+/**
+ * Multi-series draw function — draws multiple overlapping lines sharing the same axes.
+ * No fill, no momentum arrows, no badge (those are per-chart concerns handled by the engine).
+ */
+export function drawMultiFrame(
+  ctx: CanvasRenderingContext2D,
+  layout: ChartLayout,
+  opts: MultiSeriesDrawOptions,
+): void {
+  const palette = opts.primaryPalette
+  const reveal = opts.chartReveal
+
+  const revealRamp = (start: number, end: number) => {
+    const t = Math.max(0, Math.min(1, (reveal - start) / (end - start)))
+    return t * t * (3 - 2 * t)
+  }
+
+  // 1. Reference line
+  if (opts.referenceLine && reveal > 0.01) {
+    ctx.save()
+    if (reveal < 1) ctx.globalAlpha = reveal
+    drawReferenceLine(ctx, layout, palette, opts.referenceLine)
+    ctx.restore()
+  }
+
+  // 2. Grid
+  if (opts.showGrid) {
+    const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (gridAlpha > 0.01) {
+      ctx.save()
+      if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
+      drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      ctx.restore()
+    }
+  }
+
+  // 3. Draw each series line (back to front, no fill, with scrub dimming)
+  // During reverse morph, secondary lines fade out so only one remains at
+  // chartReveal=0 — prevents alpha compounding from multiple overlapping strokes
+  // looking brighter than the single standalone loading squiggly.
+  const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
+  const allPts: { pts: [number, number][]; palette: LivelinePalette; label?: string; alpha: number }[] = []
+  for (let si = 0; si < opts.series.length; si++) {
+    const s = opts.series[si]
+    const seriesAlpha = s.alpha ?? 1
+    const secondaryFade = (si > 0 && reveal < 1) ? Math.min(1, reveal * 2) : 1
+    const combinedAlpha = secondaryFade * seriesAlpha
+    if (combinedAlpha < 0.01) continue
+    ctx.save()
+    if (combinedAlpha < 1) ctx.globalAlpha = combinedAlpha
+    const pts = drawLine(
+      ctx, layout, s.palette, s.visible, s.smoothValue, opts.now,
+      false, // no fill
+      scrubX, opts.scrubAmount,
+      reveal, opts.now_ms,
+    )
+    ctx.restore()
+    if (pts && pts.length > 0) {
+      allPts.push({ pts, palette: s.palette, label: s.label, alpha: seriesAlpha })
+    }
+  }
+
+  // 4. Time axis
+  {
+    const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (timeAlpha > 0.01) {
+      ctx.save()
+      if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
+      drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      ctx.restore()
+    }
+  }
+
+  // 5. Endpoint dots + labels for each series
+  // Dots stay at reveal-based alpha only (no scrub dimming) — matching
+  // single-series where drawDot keeps inner dot at full baseAlpha
+  if (reveal > 0.3 && allPts.length > 0) {
+    const dotAlpha = (reveal - 0.3) / 0.7
+    const showPulse = opts.showPulse && reveal > 0.6 && opts.pauseProgress < 0.5
+
+    for (const entry of allPts) {
+      if (entry.alpha < 0.01) continue
+      const lastPt = entry.pts[entry.pts.length - 1]
+
+      ctx.save()
+      ctx.globalAlpha = dotAlpha * entry.alpha
+
+      // Use pulsing dot when enabled and series is mostly visible
+      if (showPulse && entry.alpha > 0.5) {
+        drawMultiDot(ctx, lastPt[0], lastPt[1], entry.palette.line, true, opts.now_ms, 3)
+      } else {
+        drawSimpleDot(ctx, lastPt[0], lastPt[1], entry.palette.line, 3)
+      }
+
+      // Label at endpoint (right of dot — layout reserves space via labelReserve)
+      if (entry.label) {
+        ctx.font = '600 10px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
+        ctx.textAlign = 'left'
+        ctx.fillStyle = entry.palette.line
+        ctx.fillText(entry.label, lastPt[0] + 6, lastPt[1] + 3.5)
+      }
+      ctx.restore()
+    }
+  }
+
+  // 6. Left edge fade
+  ctx.save()
+  ctx.globalCompositeOperation = 'destination-out'
+  const fadeGrad = ctx.createLinearGradient(layout.pad.left, 0, layout.pad.left + FADE_EDGE_WIDTH, 0)
+  fadeGrad.addColorStop(0, 'rgba(0, 0, 0, 1)')
+  fadeGrad.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  ctx.fillStyle = fadeGrad
+  ctx.fillRect(0, 0, layout.pad.left + FADE_EDGE_WIDTH, layout.h)
+  ctx.restore()
+
+  // 7. Multi-series crosshair — fade out near live dots (same logic as single-series)
+  if (opts.hoverX !== null && opts.hoverTime !== null && opts.hoverEntries.length > 0 && allPts.length > 0 && opts.scrubAmount > 0.01) {
+    // Find rightmost live dot X (skip hidden series)
+    let maxLiveDotX = 0
+    for (const entry of allPts) {
+      if (entry.alpha < 0.01) continue
+      const lastX = entry.pts[entry.pts.length - 1][0]
+      if (lastX > maxLiveDotX) maxLiveDotX = lastX
+    }
+
+    const distToLive = maxLiveDotX - opts.hoverX
+    const fadeStart = Math.min(80, layout.chartW * 0.3)
+    const scrubOpacity = distToLive < CROSSHAIR_FADE_MIN_PX ? 0
+      : distToLive >= fadeStart ? opts.scrubAmount
+      : ((distToLive - CROSSHAIR_FADE_MIN_PX) / (fadeStart - CROSSHAIR_FADE_MIN_PX)) * opts.scrubAmount
+
+    if (scrubOpacity > 0.01) {
+      drawMultiCrosshair(
+        ctx, layout, palette,
+        opts.hoverX, opts.hoverTime,
+        opts.hoverEntries,
+        opts.formatValue, opts.formatTime,
+        scrubOpacity,
+        opts.tooltipY,
+        opts.tooltipOutline,
+        maxLiveDotX,
+      )
+    }
   }
 }
 

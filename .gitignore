@@ -3,3 +3,5 @@ dist/
 *.log
 .DS_Store
 *.tsbuildinfo
+dev/showcase.*
+dev/multiline.*

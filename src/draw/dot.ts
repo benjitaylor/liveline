@@ -69,6 +69,55 @@ export function drawDot(
   ctx.fill()
 }
 
+/** Draw a multi-series endpoint dot with optional pulse ring (colored ring + solid dot, no white outer, no shadow). */
+export function drawMultiDot(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  pulse: boolean = true,
+  now_ms: number = performance.now(),
+  radius: number = 3,
+): void {
+  const baseAlpha = ctx.globalAlpha
+
+  // Expanding ring pulse (series-colored, every 1.5s)
+  if (pulse) {
+    const t = (now_ms % PULSE_INTERVAL) / PULSE_DURATION
+    if (t < 1) {
+      const ringRadius = 9 + t * 10
+      const pulseAlpha = 0.3 * (1 - t)
+      ctx.beginPath()
+      ctx.arc(x, y, ringRadius, 0, Math.PI * 2)
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1.5
+      ctx.globalAlpha = baseAlpha * pulseAlpha
+      ctx.stroke()
+    }
+  }
+
+  // Solid colored dot (no white outer, no shadow)
+  ctx.globalAlpha = baseAlpha
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
+/** Draw a small colored dot for multi-series endpoints (no ring, no pulse, no shadow). */
+export function drawSimpleDot(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  radius: number = 3,
+): void {
+  ctx.beginPath()
+  ctx.arc(x, y, radius, 0, Math.PI * 2)
+  ctx.fillStyle = color
+  ctx.fill()
+}
+
 /** Draw momentum arrows (chevrons) next to the dot. */
 export function drawArrows(
   ctx: CanvasRenderingContext2D,
