@@ -124,6 +124,7 @@ function Demo() {
   const [windowSecs, setWindowSecs] = useState(30)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const [grid, setGrid] = useState(true)
+  const [badge, setBadge] = useState(true)
   const [scrub, setScrub] = useState(true)
 
   const [volatility, setVolatility] = useState<Volatility>('normal')
@@ -392,6 +393,7 @@ function Demo() {
         <Btn active={theme === 'light'} onClick={() => setTheme('light')}>Light</Btn>
         <Sep />
         <Toggle on={grid} onToggle={setGrid}>Grid</Toggle>
+        <Toggle on={badge} onToggle={setBadge}>Badge</Toggle>
         <Toggle on={scrub} onToggle={setScrub}>Scrub</Toggle>
       </Section>
 
@@ -424,6 +426,7 @@ function Demo() {
           formatValue={preset === 'crypto' ? formatCrypto : undefined}
           onModeChange={(mode) => setChartType(mode)}
           grid={grid}
+          badge={badge}
           scrub={scrub}
         />
       </div>
@@ -466,6 +469,7 @@ function Demo() {
                 window={windowSecs}
                 formatValue={preset === 'crypto' ? formatCrypto : undefined}
                 grid={grid && size.w >= 200}
+                badge={badge && size.w >= 200}
                 scrub={scrub}
               />
             </div>
@@ -508,6 +512,7 @@ function Demo() {
           formatValue={preset === 'crypto' ? formatCrypto : undefined}
           onModeChange={(mode) => setChartType(mode)}
           grid={grid}
+          badge={badge}
           scrub={scrub}
           bars={bars}
           barMode={barMode}

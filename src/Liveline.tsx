@@ -81,9 +81,10 @@ export function Liveline({
   const momentumOverride: Momentum | undefined =
     typeof momentum === 'string' ? momentum : undefined
 
+  const defaultRight = badge ? 80 : grid ? 54 : 12
   const pad = {
     top: paddingOverride?.top ?? 12,
-    right: paddingOverride?.right ?? 80,
+    right: paddingOverride?.right ?? defaultRight,
     bottom: paddingOverride?.bottom ?? 28,
     left: paddingOverride?.left ?? 12,
   }
