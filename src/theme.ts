@@ -71,6 +71,10 @@ export function resolveTheme(color: string, mode: ThemeMode): LivelinePalette {
     // Background
     bgRgb: isDark ? [10, 10, 10] as [number, number, number] : [255, 255, 255] as [number, number, number],
 
+    // Bars
+    barFill: rgba(r, g, b, isDark ? 0.3 : 0.2),
+    barFillOverlay: rgba(r, g, b, isDark ? 0.08 : 0.06),
+
     // Fonts
     labelFont: '11px "SF Mono", Menlo, Monaco, "Cascadia Code", monospace',
     valueFont: '600 11px "SF Mono", Menlo, monospace',

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Liveline } from 'liveline'
-import type { LivelinePoint, LivelineSeries } from 'liveline'
+import type { LivelinePoint, LivelineSeries, BarPoint} from 'liveline'
 
 // --- Data generators ---
 
@@ -17,6 +17,42 @@ function generatePoint(prev: number, time: number, volatility: Volatility): Live
     : 0
   const delta = (Math.random() - bias[volatility]) * scale + spike
   return { time, value: prev + delta }
+}
+
+/** Generate initial volume bars from seed data */
+function generateBars(data: LivelinePoint[], bucketSecs: number): BarPoint[] {
+  if (data.length === 0) return []
+  const bars: BarPoint[] = []
+  const startTime = Math.floor(data[0].time / bucketSecs) * bucketSecs
+  let bucketStart = startTime
+  let bucketVolume = 0
+  let prevValue = data[0].value
+  for (const pt of data) {
+    while (pt.time >= bucketStart + bucketSecs) {
+      if (bucketVolume > 0) bars.push({ time: bucketStart, value: bucketVolume })
+      bucketStart += bucketSecs
+      bucketVolume = 0
+    }
+    const change = Math.abs(pt.value - prevValue)
+    bucketVolume += 10 + change * 20 + Math.random() * 5
+    prevValue = pt.value
+  }
+  if (bucketVolume > 0) bars.push({ time: bucketStart, value: bucketVolume })
+  return bars
+}
+
+/** Incrementally update bars with a new data point — only touches the last bucket */
+function addTickToBars(bars: BarPoint[], pt: LivelinePoint, prevValue: number, bucketSecs: number): BarPoint[] {
+  const bucketStart = Math.floor(pt.time / bucketSecs) * bucketSecs
+  const change = Math.abs(pt.value - prevValue)
+  const volume = 10 + change * 20 + Math.random() * 5
+  if (bars.length === 0 || bars[bars.length - 1].time < bucketStart) {
+    return [...bars, { time: bucketStart, value: volume }]
+  }
+  const updated = bars.slice()
+  const last = updated[updated.length - 1]
+  updated[updated.length - 1] = { time: last.time, value: last.value + volume }
+  return updated
 }
 
 // --- Constants ---
@@ -60,6 +96,10 @@ function Demo() {
   const [scrub, setScrub] = useState(true)
   const [exaggerate, setExaggerate] = useState(false)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [bars, setBars] = useState<BarPoint[]>([])
+  const [barMode, setBarMode] = useState<'default' | 'overlay'>('default')
+  const [barLabels, setBarLabels] = useState(false)
+  const barBucketSecs = 2
   const [windowStyle, setWindowStyle] = useState<'default' | 'rounded' | 'text'>('default')
   const [lineMode, setLineMode] = useState(true)
 
@@ -70,6 +110,7 @@ function Demo() {
   const intervalRef = useRef<number>(0)
   const volatilityRef = useRef(volatility)
   volatilityRef.current = volatility
+  const lastValueRef = useRef(100)
 
   const startLive = useCallback(() => {
     clearInterval(intervalRef.current)
@@ -85,13 +126,18 @@ function Demo() {
     }
     setData(seed)
     setValue(v)
+    lastValueRef.current = v
+    setBars(generateBars(seed, barBucketSecs))
 
     intervalRef.current = window.setInterval(() => {
       setData(prev => {
         const now = Date.now() / 1000
         const lastVal = prev.length > 0 ? prev[prev.length - 1].value : 100
+        const prevVal = lastValueRef.current
         const pt = generatePoint(lastVal, now, volatilityRef.current)
+        lastValueRef.current = pt.value
         setValue(pt.value)
+        setBars(b => addTickToBars(b, pt, prevVal, barBucketSecs))
         const next = [...prev, pt]
         return next.length > 500 ? next.slice(-500) : next
       })
@@ -101,7 +147,7 @@ function Demo() {
   useEffect(() => {
     if (scenario === 'loading') {
       setLoading(true)
-      setData([])
+      setData([]); setBars([])
       clearInterval(intervalRef.current)
       const timer = setTimeout(() => setScenario('live'), 3000)
       return () => clearTimeout(timer)
@@ -109,14 +155,14 @@ function Demo() {
 
     if (scenario === 'loading-hold') {
       setLoading(true)
-      setData([])
+      setData([]); setBars([])
       clearInterval(intervalRef.current)
       return
     }
 
     if (scenario === 'empty') {
       setLoading(false)
-      setData([])
+      setData([]); setBars([])
       clearInterval(intervalRef.current)
       return
     }
@@ -134,8 +180,11 @@ function Demo() {
       setData(prev => {
         const now = Date.now() / 1000
         const lastVal = prev.length > 0 ? prev[prev.length - 1].value : 100
+        const prevVal = lastValueRef.current
         const pt = generatePoint(lastVal, now, volatilityRef.current)
+        lastValueRef.current = pt.value
         setValue(pt.value)
+        setBars(b => addTickToBars(b, pt, prevVal, barBucketSecs))
         const next = [...prev, pt]
         return next.length > 500 ? next.slice(-500) : next
       })
@@ -323,6 +372,45 @@ function Demo() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Volume bars */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 24, marginBottom: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--fg-30)', margin: 0 }}>Volume bars</p>
+        <Btn active={barMode === 'default'} onClick={() => setBarMode('default')}>Default</Btn>
+        <Btn active={barMode === 'overlay'} onClick={() => setBarMode('overlay')}>Overlay</Btn>
+        <Sep />
+        <Toggle on={barLabels} onToggle={setBarLabels}>Labels</Toggle>
+      </div>
+      <div style={{
+        height: 320,
+        background: 'var(--fg-02)',
+        borderRadius: 12,
+        border: '1px solid var(--fg-06)',
+        padding: 8,
+        overflow: 'hidden',
+      }}>
+        <Liveline
+          data={data}
+          value={value}
+          theme={theme}
+          window={windowSecs}
+          loading={loading}
+          paused={paused}
+          grid={grid}
+          scrub={scrub}
+          fill={fill}
+          badge={badge}
+          badgeVariant={badgeVariant}
+          momentum={momentum}
+          pulse={pulse}
+          windows={TIME_WINDOWS}
+          onWindowChange={setWindowSecs}
+          bars={bars}
+          barMode={barMode}
+          barWidth={barBucketSecs}
+          barLabels={barLabels}
+        />
       </div>
 
       {/* Status bar */}

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react'
-import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
+import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint, BarPoint, BarMode } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
@@ -54,6 +54,12 @@ interface EngineConfig {
   lineData?: LivelinePoint[]
   lineValue?: number
 
+  // Bar chart
+  bars?: BarPoint[]
+  barMode?: BarMode
+  barColor?: string
+  barWidthSecs?: number
+  barLabels?: boolean
   // Multi-series mode
   multiSeries?: Array<{
     id: string
@@ -86,6 +92,7 @@ const BADGE_Y_LERP_TRANSITIONING = 0.5
 const MOMENTUM_COLOR_LERP = 0.12
 const WINDOW_TRANSITION_MS = 750
 const WINDOW_BUFFER = 0.05
+const WINDOW_BUFFER_NO_BADGE = 0.015
 const VALUE_SNAP_THRESHOLD = 0.001
 const ADAPTIVE_SPEED_BOOST = 0.2
 const MOMENTUM_GREEN: [number, number, number] = [34, 197, 94]
@@ -97,6 +104,10 @@ const PAUSE_CATCHUP_SPEED = 0.08
 const PAUSE_CATCHUP_SPEED_FAST = 0.22
 const LOADING_ALPHA_SPEED = 0.14
 const SERIES_TOGGLE_SPEED = 0.10
+
+// --- Bar chart constants ---
+const BAR_STRIP_RATIO = 0.2         // default mode: 20% of chartH for bar strip
+const BAR_OVERLAY_MAX_RATIO = 0.35  // overlay mode: max 35% of chartH for tallest bar
 
 // --- Candle-specific constants ---
 const CANDLE_LERP_SPEED = 0.25
@@ -110,6 +121,7 @@ const LINE_SNAP_THRESHOLD = 0.001
 const RANGE_LERP_SPEED = 0.15
 const RANGE_ADAPTIVE_BOOST = 0.2
 const CANDLE_BUFFER = 0.05
+const CANDLE_BUFFER_NO_BADGE = 0.015
 
 // --- Extracted helper functions (pure computation, called inside draw loop) ---
 
@@ -584,6 +596,9 @@ export function useLivelineEngine(
   const orderbookStateRef = useRef(createOrderbookState())
   const particleStateRef = useRef(createParticleState())
   const shakeStateRef = useRef(createShakeState())
+  const displayBarMaxRef = useRef(0)
+  const targetBarMaxRef = useRef(0)
+  const barMaxInitedRef = useRef(false)
   const badgeColorRef = useRef({ green: 1 })
   const badgeYRef = useRef<number | null>(null) // lerped badge Y, null = uninited
   const reducedMotionRef = useRef(false)
@@ -861,7 +876,11 @@ export function useLivelineEngine(
     const hasMultiData = cfg.isMultiSeries && cfg.multiSeries ? cfg.multiSeries.some(s => s.data.length >= 2) : false
     const hasData = isCandle ? effectiveCandles.length >= 2 : (hasMultiData || points.length >= 2)
     const pad = cfg.padding
-    const chartH = h - pad.top - pad.bottom
+    const fullChartH = h - pad.top - pad.bottom
+    const hasBars = cfg.bars && cfg.bars.length > 0 && cfg.barWidthSecs
+    const barIsDefault = (cfg.barMode ?? 'default') === 'default'
+    const barStripH = hasBars && barIsDefault ? Math.round(fullChartH * BAR_STRIP_RATIO) : 0
+    const chartH = fullChartH - barStripH
 
     // --- Pause time management ---
     const pauseTarget = cfg.paused ? 1 : 0
@@ -988,6 +1007,10 @@ export function useLivelineEngine(
       // CANDLE MODE PIPELINE
       // ═══════════════════════════════════════════════════════
 
+      // Badge is never visible in pure candle mode (only during line morph),
+      // so always use the smaller buffer to avoid dead space on the right.
+      const candleBuffer = CANDLE_BUFFER_NO_BADGE
+
       // Frozen now — prevent candles from scrolling during reverse morph
       if (hasData) frozenNowRef.current = Date.now() / 1000 - timeDebtRef.current
       const now = (hasData || chartReveal < 0.005)
@@ -1032,7 +1055,7 @@ export function useLivelineEngine(
         cwt.rangeFromMin = displayMinRef.current
         cwt.rangeFromMax = displayMaxRef.current
         const curWindow = displayWindowRef.current
-        const re = now + curWindow * CANDLE_BUFFER
+        const re = now + curWindow * candleBuffer
         const le = re - curWindow
         const targetVis: CandlePoint[] = []
         for (const c of effectiveCandles) {
@@ -1078,14 +1101,14 @@ export function useLivelineEngine(
       const windowResult = updateCandleWindowTransition(
         cfg.windowSecs, transition, displayWindowRef.current,
         displayMinRef.current, displayMaxRef.current,
-        now_ms, now, effectiveCandles, rawLive, candleWidthSecs, CANDLE_BUFFER,
+        now_ms, now, effectiveCandles, rawLive, candleWidthSecs, candleBuffer,
       )
       displayWindowRef.current = windowResult.windowSecs
       const windowSecs = windowResult.windowSecs
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      const rightEdge = now + windowSecs * CANDLE_BUFFER
+      const rightEdge = now + windowSecs * candleBuffer
       const leftEdge = rightEdge - windowSecs
 
       // --- Live candle OHLC lerp ---
@@ -1368,6 +1391,61 @@ export function useLivelineEngine(
         }
       }
 
+      // --- Bar chart computation (candle mode) ---
+      let candleBarDrawOpts: {
+        bars: BarPoint[]; barWidthSecs: number; barMode: BarMode
+        barFillColor: string; barLayout: { bottom: number; maxHeight: number; maxValue: number }
+        barShowLabels: boolean
+      } | undefined
+      if (hasBars && cfg.bars && cfg.barWidthSecs) {
+        const barMode = cfg.barMode ?? 'default'
+        const visibleBars: BarPoint[] = []
+        for (const b of cfg.bars) {
+          if (b.time + cfg.barWidthSecs >= leftEdge && b.time <= rightEdge) {
+            visibleBars.push(b)
+          }
+        }
+        if (visibleBars.length > 0) {
+          let rawBarMax = 0
+          for (const b of visibleBars) { if (b.value > rawBarMax) rawBarMax = b.value }
+          rawBarMax *= 1.05
+
+          // Smooth bar max — same lerp pattern as line chart Y range
+          targetBarMaxRef.current = rawBarMax
+          if (!barMaxInitedRef.current) {
+            displayBarMaxRef.current = rawBarMax
+            barMaxInitedRef.current = true
+          } else {
+            const gap = Math.abs(displayBarMaxRef.current - targetBarMaxRef.current)
+            const gapRatio = displayBarMaxRef.current > 0 ? Math.min(gap / displayBarMaxRef.current, 1) : 1
+            const barSpeed = RANGE_LERP_SPEED + (1 - gapRatio) * RANGE_ADAPTIVE_BOOST
+            displayBarMaxRef.current = lerp(displayBarMaxRef.current, targetBarMaxRef.current, barSpeed, pausedDt)
+            const barStripPx = barMode === 'default' ? barStripH : chartH * BAR_OVERLAY_MAX_RATIO
+            const pxThreshold = barStripPx > 0 ? 0.5 * displayBarMaxRef.current / barStripPx : 0.001
+            if (Math.abs(displayBarMaxRef.current - targetBarMaxRef.current) < pxThreshold) {
+              displayBarMaxRef.current = targetBarMaxRef.current
+            }
+          }
+          const barMax = displayBarMaxRef.current
+
+          const barFillColor = cfg.barColor
+            ?? (barMode === 'overlay' ? cfg.palette.barFillOverlay : cfg.palette.barFill)
+
+          const barLayout = barMode === 'default'
+            ? { bottom: h - pad.bottom, maxHeight: barStripH, maxValue: barMax }
+            : { bottom: pad.top + chartH, maxHeight: chartH * BAR_OVERLAY_MAX_RATIO, maxValue: barMax }
+
+          candleBarDrawOpts = {
+            bars: visibleBars,
+            barWidthSecs: cfg.barWidthSecs,
+            barMode,
+            barFillColor,
+            barLayout,
+            barShowLabels: cfg.barLabels ?? false,
+          }
+        }
+      }
+
       // --- Draw ---
       drawCandleFrame(ctx, layout, cfg.palette, {
         candles: drawCandles,
@@ -1410,6 +1488,12 @@ export function useLivelineEngine(
         // loading→live (where loadingAlpha starts at ~1), while still
         // allowing smooth fade-out during empty→live (loadingAlpha is 0).
         showEmptyOverlay: !(cfg.loading ?? false) && loadingAlpha < 0.01,
+        bars: candleBarDrawOpts?.bars,
+        barWidthSecs: candleBarDrawOpts?.barWidthSecs,
+        barMode: candleBarDrawOpts?.barMode,
+        barFillColor: candleBarDrawOpts?.barFillColor,
+        barLayout: candleBarDrawOpts?.barLayout,
+        barShowLabels: candleBarDrawOpts?.barShowLabels,
       })
 
       // Badge in candle mode — only when in line mode (lineModeProg > 0.5)
@@ -1735,13 +1819,14 @@ export function useLivelineEngine(
 
     const chartW = w - pad.left - pad.right
 
-    // Dynamic buffer: when momentum arrows + badge are both on, ensure enough
-    // gap between the live dot and badge for the arrows to fit.
-    // Gap formula: buffer * chartW - 7. Need ~30px for arrows.
-    const needsArrowRoom = cfg.showMomentum
+    // Dynamic buffer: when badge is off, use a smaller buffer so the dot
+    // sits closer to the right edge. When momentum arrows + badge are both
+    // on, ensure enough gap for the arrows to fit.
+    const baseBuffer = cfg.showBadge ? WINDOW_BUFFER : WINDOW_BUFFER_NO_BADGE
+    const needsArrowRoom = cfg.showMomentum && cfg.showBadge
     const buffer = needsArrowRoom
-      ? Math.max(WINDOW_BUFFER, 37 / Math.max(chartW, 1))
-      : WINDOW_BUFFER
+      ? Math.max(baseBuffer, 37 / Math.max(chartW, 1))
+      : baseBuffer
 
     // Window transition
     const transition = windowTransitionRef.current
@@ -1821,6 +1906,61 @@ export function useLivelineEngine(
       : 0
     const swingMagnitude = valRange > 0 ? Math.min(recentDelta / valRange, 1) : 0
 
+    // --- Bar chart computation ---
+    let barDrawOpts: {
+      bars: BarPoint[]; barWidthSecs: number; barMode: BarMode
+      barFillColor: string; barLayout: { bottom: number; maxHeight: number; maxValue: number }
+      barShowLabels: boolean
+    } | undefined
+    if (hasBars && cfg.bars && cfg.barWidthSecs) {
+      const barMode = cfg.barMode ?? 'default'
+      const visibleBars: BarPoint[] = []
+      for (const b of cfg.bars) {
+        if (b.time + cfg.barWidthSecs >= leftEdge && b.time <= rightEdge) {
+          visibleBars.push(b)
+        }
+      }
+      if (visibleBars.length > 0) {
+        let rawBarMax = 0
+        for (const b of visibleBars) { if (b.value > rawBarMax) rawBarMax = b.value }
+        rawBarMax *= 1.05 // 5% headroom
+
+        // Smooth bar max — same lerp pattern as line chart Y range
+        targetBarMaxRef.current = rawBarMax
+        if (!barMaxInitedRef.current) {
+          displayBarMaxRef.current = rawBarMax
+          barMaxInitedRef.current = true
+        } else {
+          const gap = Math.abs(displayBarMaxRef.current - targetBarMaxRef.current)
+          const gapRatio = displayBarMaxRef.current > 0 ? Math.min(gap / displayBarMaxRef.current, 1) : 1
+          const speed = RANGE_LERP_SPEED + (1 - gapRatio) * RANGE_ADAPTIVE_BOOST
+          displayBarMaxRef.current = lerp(displayBarMaxRef.current, targetBarMaxRef.current, speed, pausedDt)
+          const barStripPx = barMode === 'default' ? barStripH : chartH * BAR_OVERLAY_MAX_RATIO
+          const pxThreshold = barStripPx > 0 ? 0.5 * displayBarMaxRef.current / barStripPx : 0.001
+          if (Math.abs(displayBarMaxRef.current - targetBarMaxRef.current) < pxThreshold) {
+            displayBarMaxRef.current = targetBarMaxRef.current
+          }
+        }
+        const barMax = displayBarMaxRef.current
+
+        const barFillColor = cfg.barColor
+          ?? (barMode === 'overlay' ? cfg.palette.barFillOverlay : cfg.palette.barFill)
+
+        const barLayout = barMode === 'default'
+          ? { bottom: h - pad.bottom, maxHeight: barStripH, maxValue: barMax }
+          : { bottom: pad.top + chartH, maxHeight: chartH * BAR_OVERLAY_MAX_RATIO, maxValue: barMax }
+
+        barDrawOpts = {
+          bars: visibleBars,
+          barWidthSecs: cfg.barWidthSecs,
+          barMode,
+          barFillColor,
+          barLayout,
+          barShowLabels: cfg.barLabels ?? false,
+        }
+      }
+    }
+
     // Draw canvas content (everything except badge)
     drawFrame(ctx, layout, cfg.palette, {
       visible,
@@ -1855,6 +1995,12 @@ export function useLivelineEngine(
       chartReveal,
       pauseProgress,
       now_ms,
+      bars: barDrawOpts?.bars,
+      barWidthSecs: barDrawOpts?.barWidthSecs,
+      barMode: barDrawOpts?.barMode,
+      barFillColor: barDrawOpts?.barFillColor,
+      barLayout: barDrawOpts?.barLayout,
+      barShowLabels: barDrawOpts?.barShowLabels,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on

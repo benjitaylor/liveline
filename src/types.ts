@@ -120,6 +120,13 @@ export interface LivelineProps {
   onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
   seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
 
+  // Bar chart
+  bars?: BarPoint[]             // Bar data (e.g., volume)
+  barMode?: BarMode             // 'default' (bottom strip) or 'overlay' (behind line) — default: 'default'
+  barWidth?: number             // Seconds per bar bucket
+  barColor?: string             // Override accent-derived bar color
+  barLabels?: boolean           // Show value labels on bars (default: false)
+
   className?: string
   style?: CSSProperties
 }
@@ -131,6 +138,13 @@ export interface CandlePoint {
   low: number
   close: number
 }
+
+export interface BarPoint {
+  time: number   // unix seconds — bar period start
+  value: number  // bar height value (e.g., volume)
+}
+
+export type BarMode = 'default' | 'overlay'
 
 export interface LivelinePalette {
   // Line
@@ -177,6 +191,10 @@ export interface LivelinePalette {
 
   // Background (for color fading — labels fade toward bg instead of alpha)
   bgRgb: [number, number, number]
+
+  // Bars
+  barFill: string
+  barFillOverlay: string
 
   // Fonts
   labelFont: string
