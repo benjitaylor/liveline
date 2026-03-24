@@ -60,6 +60,7 @@ export interface DrawOptions {
   chartReveal: number       // 0 = loading/morphing from center, 1 = fully revealed
   pauseProgress: number     // 0 = playing, 1 = fully paused
   now_ms: number            // performance.now() for breathing animation timing
+  activePoint?: { x: number; y: number; value: number; time: number }
 }
 
 /**
@@ -203,7 +204,8 @@ export function drawFrame(
   ctx.restore()
 
   // 8. Crosshair — fade out well before reaching live dot
-  if (opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
+  //    Suppressed when activePoint is present (programmatic crosshair takes priority)
+  if (!opts.activePoint && opts.hoverX !== null && opts.hoverValue !== null && opts.hoverTime !== null && pts && pts.length > 0) {
     const lastPt = pts[pts.length - 1]
     const distToLive = lastPt[0] - opts.hoverX
     const fadeStart = Math.min(80, layout.chartW * 0.3)
@@ -222,6 +224,19 @@ export function drawFrame(
         opts.tooltipOutline,
       )
     }
+  }
+
+  // 8b. Programmatic activePoint crosshair — full opacity, no live-dot clamp
+  if (opts.activePoint) {
+    drawCrosshair(
+      ctx, layout, palette,
+      opts.activePoint.x, opts.activePoint.value, opts.activePoint.time,
+      opts.formatValue, opts.formatTime,
+      1, // full opacity
+      opts.tooltipY,
+      undefined, // no liveDotX — chart is paused
+      opts.tooltipOutline,
+    )
   }
 
   // Restore shake translate
