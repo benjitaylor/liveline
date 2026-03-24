@@ -346,6 +346,9 @@ function Demo() {
 
       {/* Multi-series demo */}
       <MultiSeriesDemo theme={theme} />
+
+      {/* Active point demo */}
+      <ActivePointDemo theme={theme} />
     </div>
   )
 }
@@ -543,6 +546,77 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
         <span>paused: {String(paused)}</span>
         <span>window: {windowSecs}s</span>
         <span>points: {series[0]?.data.length ?? 0}</span>
+      </div>
+    </>
+  )
+}
+
+// ─── Active Point Demo ─────────────────────────────────────────
+
+function ActivePointDemo({ theme }: { theme: 'dark' | 'light' }) {
+  const POINT_COUNT = 200
+  const WINDOW_SECS = 30
+
+  // Fixed sine dataset — deterministic, paused
+  const dataset = React.useMemo(() => {
+    const now = Date.now() / 1000
+    const pts: LivelinePoint[] = []
+    for (let i = 0; i < POINT_COUNT; i++) {
+      const t = now - (POINT_COUNT - 1 - i) * (WINDOW_SECS / POINT_COUNT)
+      pts.push({ time: t, value: 100 + Math.sin(i * 0.08) * 15 + Math.sin(i * 0.03) * 8 })
+    }
+    return pts
+  }, [])
+
+  const lastValue = dataset[dataset.length - 1].value
+  const [pointIndex, setPointIndex] = useState(Math.floor(POINT_COUNT * 0.5))
+
+  const point = dataset[pointIndex]
+  const activePoint: [number, number] = [point.time, point.value]
+
+  return (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 4, borderBottom: 'none' }}>Active Point</h2>
+      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginBottom: 12 }}>
+        Programmatic crosshair on a paused chart
+      </p>
+
+      <Section label="Point">
+        <input
+          type="range"
+          min={0}
+          max={POINT_COUNT - 1}
+          value={pointIndex}
+          onChange={e => setPointIndex(Number(e.target.value))}
+          style={{ width: 200 }}
+        />
+        <span style={{ fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace', color: 'var(--fg-30)' }}>
+          idx {pointIndex} — value {point.value.toFixed(2)}
+        </span>
+      </Section>
+
+      <div style={{
+        height: 240,
+        background: 'var(--fg-02)',
+        borderRadius: 12,
+        border: '1px solid var(--fg-06)',
+        padding: 8,
+        overflow: 'hidden',
+        marginTop: 8,
+      }}>
+        <Liveline
+          data={dataset}
+          value={lastValue}
+          theme={theme}
+          window={WINDOW_SECS}
+          paused
+          activePoint={activePoint}
+          grid
+          fill
+          badge={false}
+          momentum={false}
+          scrub={false}
+        />
       </div>
     </>
   )
