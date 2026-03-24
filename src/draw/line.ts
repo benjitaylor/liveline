@@ -31,6 +31,62 @@ function blendColor(c1: string, c2: string, t: number): string {
   return `rgba(${r},${g},${b},${a.toFixed(3)})`
 }
 
+/** Draw straight line segments between points (no curve interpolation). */
+function drawStraight(ctx: CanvasRenderingContext2D, pts: [number, number][]) {
+  for (let i = 1; i < pts.length; i++) {
+    ctx.lineTo(pts[i][0], pts[i][1])
+  }
+}
+
+/** Draw a stippled dot pattern clipped to the area under a line. */
+function drawDottedFill(
+  ctx: CanvasRenderingContext2D,
+  layout: ChartLayout,
+  palette: LivelinePalette,
+  pts: [number, number][],
+  fillAlpha: number,
+  drawPath: (ctx: CanvasRenderingContext2D, pts: [number, number][]) => void,
+) {
+  const { h, pad } = layout
+  const baseAlpha = ctx.globalAlpha
+  ctx.globalAlpha = baseAlpha * fillAlpha
+
+  // Clip to the area under the curve (uses the same path as the stroke)
+  ctx.save()
+  ctx.beginPath()
+  ctx.moveTo(pts[0][0], h - pad.bottom)
+  ctx.lineTo(pts[0][0], pts[0][1])
+  drawPath(ctx, pts)
+  ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
+  ctx.closePath()
+  ctx.clip()
+
+  // Draw dots in a grid, fading from top to bottom.
+  // Batched per row: one beginPath + fill per row instead of per dot.
+  const dotSpacing = 6
+  const dotRadius = 0.5
+  const chartHeight = h - pad.bottom - pad.top
+  ctx.fillStyle = palette.line
+  for (let y = pad.top; y < h - pad.bottom; y += dotSpacing) {
+    const fadeFactor = Math.max(0, Math.min(1, (1 - (y - pad.top) / chartHeight) * 0.4))
+    ctx.globalAlpha = baseAlpha * fillAlpha * fadeFactor
+    ctx.beginPath()
+    for (let x = pad.left; x < layout.w - pad.right; x += dotSpacing) {
+      ctx.moveTo(x + dotRadius, y)
+      ctx.arc(x, y, dotRadius, 0, Math.PI * 2)
+    }
+    ctx.fill()
+  }
+
+  ctx.restore()
+  ctx.globalAlpha = baseAlpha
+}
+
+export interface CurveStyle {
+  angular?: boolean
+  dotFill?: boolean
+}
+
 /** Draw the fill gradient + stroke line for a set of points. */
 function renderCurve(
   ctx: CanvasRenderingContext2D,
@@ -41,33 +97,39 @@ function renderCurve(
   lineAlpha: number = 1,
   fillAlpha: number = 1,
   strokeColor?: string,
+  curveStyle?: CurveStyle,
 ) {
   const { h, pad } = layout
   const baseAlpha = ctx.globalAlpha
+  const drawPath = curveStyle?.angular ? drawStraight : drawSpline
 
   if (showFill && fillAlpha > 0.01) {
-    ctx.globalAlpha = baseAlpha * fillAlpha
-    const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
-    grad.addColorStop(0, palette.fillTop)
-    grad.addColorStop(1, palette.fillBottom)
-    ctx.beginPath()
-    ctx.moveTo(pts[0][0], h - pad.bottom)
-    ctx.lineTo(pts[0][0], pts[0][1])
-    drawSpline(ctx, pts)
-    ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
-    ctx.closePath()
-    ctx.fillStyle = grad
-    ctx.fill()
+    if (curveStyle?.dotFill) {
+      drawDottedFill(ctx, layout, palette, pts, fillAlpha, drawPath)
+    } else {
+      ctx.globalAlpha = baseAlpha * fillAlpha
+      const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
+      grad.addColorStop(0, palette.fillTop)
+      grad.addColorStop(1, palette.fillBottom)
+      ctx.beginPath()
+      ctx.moveTo(pts[0][0], h - pad.bottom)
+      ctx.lineTo(pts[0][0], pts[0][1])
+      drawPath(ctx, pts)
+      ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
+      ctx.closePath()
+      ctx.fillStyle = grad
+      ctx.fill()
+    }
   }
 
   ctx.globalAlpha = baseAlpha * lineAlpha
   ctx.beginPath()
   ctx.moveTo(pts[0][0], pts[0][1])
-  drawSpline(ctx, pts)
+  drawPath(ctx, pts)
   ctx.strokeStyle = strokeColor ?? palette.line
   ctx.lineWidth = palette.lineWidth
-  ctx.lineJoin = 'round'
-  ctx.lineCap = 'round'
+  ctx.lineJoin = curveStyle?.angular ? 'miter' : 'round'
+  ctx.lineCap = curveStyle?.angular ? 'square' : 'round'
   ctx.stroke()
   ctx.globalAlpha = baseAlpha
 }
@@ -87,6 +149,7 @@ export function drawLine(
   colorBlend: number = 1,
   skipDashLine: boolean = false,
   fillScale: number = 1,
+  curveStyle?: CurveStyle,
 ) {
   const { h, pad, toX, toY, chartW, chartH } = layout
   const incomingAlpha = ctx.globalAlpha
@@ -171,7 +234,7 @@ export function drawLine(
     ctx.beginPath()
     ctx.rect(0, 0, scrubX!, h)
     ctx.clip()
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor, curveStyle)
     ctx.restore()
 
     // Dimmed portion: clipped to RIGHT of scrub point
@@ -180,10 +243,10 @@ export function drawLine(
     ctx.rect(scrubX!, 0, layout.w - scrubX!, h)
     ctx.clip()
     ctx.globalAlpha = incomingAlpha * (1 - scrubAmount * 0.6)
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor, curveStyle)
     ctx.restore()
   } else {
-    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor)
+    renderCurve(ctx, layout, palette, pts, showFill, lineAlpha, fillAlpha, strokeColor, curveStyle)
   }
 
   // Restore from chart-area clip
