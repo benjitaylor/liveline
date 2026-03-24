@@ -44,6 +44,7 @@ interface EngineConfig {
   loading?: boolean
   paused?: boolean
   emptyText?: string
+  activePoint?: [number, number]
 
   // Candlestick mode
   mode: 'line' | 'candle'
@@ -1828,6 +1829,20 @@ export function useLivelineEngine(
       : 0
     const swingMagnitude = valRange > 0 ? Math.min(recentDelta / valRange, 1) : 0
 
+    // Programmatic activePoint — only when paused in single-series line mode
+    let activePointDraw: { x: number; y: number; value: number; time: number } | undefined
+    if (cfg.activePoint && cfg.paused && pauseProgress > 0.5 && !cfg.isMultiSeries) {
+      const [apTime, apValue] = cfg.activePoint
+      if (apTime >= leftEdge && apTime <= rightEdge && apValue >= minVal && apValue <= maxVal) {
+        activePointDraw = {
+          x: layout.toX(apTime),
+          y: layout.toY(apValue),
+          value: apValue,
+          time: apTime,
+        }
+      }
+    }
+
     // Draw canvas content (everything except badge)
     drawFrame(ctx, layout, cfg.palette, {
       visible,
@@ -1862,6 +1877,7 @@ export function useLivelineEngine(
       chartReveal,
       pauseProgress,
       now_ms,
+      activePoint: activePointDraw,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
