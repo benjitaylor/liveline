@@ -21,6 +21,7 @@ interface EngineConfig {
   windowSecs: number
   lerpSpeed: number
   showGrid: boolean
+  showTimeAxis: boolean
   showBadge: boolean
   showMomentum: boolean
   momentumOverride?: Momentum
@@ -1403,6 +1404,7 @@ export function useLivelineEngine(
         formatTime: cfg.formatTime,
         gridState: gridStateRef.current,
         timeAxisState: timeAxisStateRef.current,
+        showTimeAxis: cfg.showTimeAxis,
         dt: pausedDt,
         targetWindowSecs: cfg.windowSecs,
         tooltipY: cfg.tooltipY,
@@ -1690,6 +1692,7 @@ export function useLivelineEngine(
       formatTime: cfg.formatTime,
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
+      showTimeAxis: cfg.showTimeAxis,
       dt,
       targetWindowSecs: cfg.windowSecs,
       tooltipY: cfg.tooltipY,
@@ -1849,6 +1852,7 @@ export function useLivelineEngine(
       formatTime: cfg.formatTime,
       gridState: gridStateRef.current,
       timeAxisState: timeAxisStateRef.current,
+      showTimeAxis: cfg.showTimeAxis,
       dt,
       targetWindowSecs: cfg.windowSecs,
       tooltipY: cfg.tooltipY,

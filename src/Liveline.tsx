@@ -21,6 +21,7 @@ export function Liveline({
   color = '#3b82f6',
   window: windowSecs = 30,
   grid = true,
+  timeAxis = true,
   badge = true,
   momentum = true,
   fill = true,
@@ -111,7 +112,7 @@ export function Liveline({
   const pad = {
     top: paddingOverride?.top ?? 12,
     right: paddingOverride?.right ?? defaultRight,
-    bottom: paddingOverride?.bottom ?? 28,
+    bottom: paddingOverride?.bottom ?? (timeAxis ? 28 : 6),
     left: paddingOverride?.left ?? 12,
   }
 
@@ -188,6 +189,7 @@ export function Liveline({
     windowSecs: effectiveWindowSecs,
     lerpSpeed,
     showGrid: grid,
+    showTimeAxis: timeAxis,
     showBadge: isMultiSeries ? false : badge,
     showMomentum: isMultiSeries ? false : showMomentum,
     momentumOverride,

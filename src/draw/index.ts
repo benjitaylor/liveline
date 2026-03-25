@@ -34,6 +34,7 @@ export interface DrawOptions {
   momentum: Momentum
   arrowState: ArrowState
   showGrid: boolean
+  showTimeAxis: boolean
   showMomentum: boolean
   showPulse: boolean
   showFill: boolean
@@ -130,7 +131,7 @@ export function drawFrame(
   const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
 
   // 4. Time axis — same timing as grid
-  {
+  if (opts.showTimeAxis) {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
       ctx.save()
@@ -244,6 +245,7 @@ export interface MultiSeriesDrawOptions {
   series: MultiSeriesEntry[]
   now: number
   showGrid: boolean
+  showTimeAxis: boolean
   showPulse: boolean
   referenceLine?: ReferenceLine
   hoverX: number | null
@@ -329,7 +331,7 @@ export function drawMultiFrame(
   }
 
   // 4. Time axis
-  {
+  if (opts.showTimeAxis) {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
       ctx.save()
@@ -432,6 +434,7 @@ export interface CandleDrawOptions {
   now: number
   pauseProgress: number
   showGrid: boolean
+  showTimeAxis: boolean
   scrubAmount: number
   hoverX: number | null
   hoverValue: number | null
@@ -615,12 +618,14 @@ export function drawCandleFrame(
   }
 
   // 6. Time axis — fades in (25%–60% of reveal)
-  const timeAlpha = revealRamp(0.25, 0.6)
-  if (timeAlpha > 0.01) {
-    ctx.save()
-    if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
-    drawTimeAxis(ctx, layout, palette, opts.targetWindowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
-    ctx.restore()
+  if (opts.showTimeAxis) {
+    const timeAlpha = revealRamp(0.25, 0.6)
+    if (timeAlpha > 0.01) {
+      ctx.save()
+      if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
+      drawTimeAxis(ctx, layout, palette, opts.targetWindowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      ctx.restore()
+    }
   }
 
   // 7. Left edge fade — gradient erase

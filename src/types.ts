@@ -70,6 +70,7 @@ export interface LivelineProps {
 
   // Feature flags
   grid?: boolean
+  timeAxis?: boolean          // Show X-axis time labels + ticks (default: true)
   badge?: boolean
   momentum?: boolean | Momentum
   fill?: boolean
