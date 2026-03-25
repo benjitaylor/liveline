@@ -94,8 +94,8 @@ export interface LivelineProps {
   // Crosshair
   tooltipY?: number        // Vertical offset for crosshair tooltip text (default: 14)
   tooltipOutline?: boolean // Stroke outline around crosshair tooltip text for readability (default: true)
-  /** Programmatic crosshair at [time, value]. time in unix seconds. Only rendered when paused in single-series line mode. */
-  activePoint?: [number, number]
+  /** Programmatic crosshair at a time (unix seconds). The chart interpolates the Y value(s) internally. Works live or paused, single or multi-series. */
+  activeTime?: number
 
   // Orderbook
   orderbook?: OrderbookData

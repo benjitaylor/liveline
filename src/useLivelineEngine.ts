@@ -44,7 +44,7 @@ interface EngineConfig {
   loading?: boolean
   paused?: boolean
   emptyText?: string
-  activePoint?: [number, number]
+  activeTime?: number
 
   // Candlestick mode
   mode: 'line' | 'candle'
@@ -1658,6 +1658,31 @@ export function useLivelineEngine(
       cfg.onHover?.({ time: t, value: hoverEntries[0]?.value ?? 0, x: clampedX, y: layout.toY(hoverEntries[0]?.value ?? 0) })
     }
 
+    // Programmatic activeTime — interpolate each series (no onHover callback)
+    if (cfg.activeTime != null && !isActiveHover) {
+      if (cfg.activeTime >= leftEdge && cfg.activeTime <= rightEdge) {
+        drawHoverX = layout.toX(cfg.activeTime)
+        drawHoverTime = cfg.activeTime
+        isActiveHover = true
+
+        for (const entry of seriesEntries) {
+          if ((entry.alpha ?? 1) < 0.5) {       
+            continue
+          }
+
+          const v = interpolateAtTime(entry.visible, cfg.activeTime)
+
+          if (v !== null) {
+            hoverEntries.push({ 
+              color: entry.palette.line, 
+              label: entry.label ?? '', 
+              value: v 
+            })
+          }
+        }
+      }
+    }
+
     // Scrub amount
     const scrubTarget = isActiveHover ? 1 : 0
     if (noMotion) {
@@ -1820,7 +1845,7 @@ export function useLivelineEngine(
     )
     scrubAmountRef.current = hoverResult.scrubAmount
     lastHoverRef.current = hoverResult.lastHover
-    const { hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime } = hoverResult
+    const { hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime, isActiveHover } = hoverResult
 
     // Compute swing magnitude for particles (recent velocity / visible range)
     const lookback = Math.min(5, visible.length - 1)
@@ -1829,16 +1854,19 @@ export function useLivelineEngine(
       : 0
     const swingMagnitude = valRange > 0 ? Math.min(recentDelta / valRange, 1) : 0
 
-    // Programmatic activePoint — only when paused in single-series line mode
-    let activePointDraw: { x: number; y: number; value: number; time: number } | undefined
-    if (cfg.activePoint && cfg.paused && pauseProgress > 0.5 && !cfg.isMultiSeries) {
-      const [apTime, apValue] = cfg.activePoint
-      if (apTime >= leftEdge && apTime <= rightEdge && apValue >= minVal && apValue <= maxVal) {
-        activePointDraw = {
-          x: layout.toX(apTime),
-          y: layout.toY(apValue),
-          value: apValue,
-          time: apTime,
+    // Programmatic activeTime — interpolate Y value from data (works live + paused)
+    // Skipped when user is actively hovering (user hover wins)
+    let activeTimeDraw: { x: number; y: number; value: number; time: number } | undefined
+    if (cfg.activeTime != null && !cfg.isMultiSeries && !isActiveHover) {
+      if (cfg.activeTime >= leftEdge && cfg.activeTime <= rightEdge) {
+        const value = interpolateAtTime(visible, cfg.activeTime)
+        if (value !== null) {
+          activeTimeDraw = {
+            x: layout.toX(cfg.activeTime),
+            y: layout.toY(value),
+            value,
+            time: cfg.activeTime,
+          }
         }
       }
     }
@@ -1877,7 +1905,7 @@ export function useLivelineEngine(
       chartReveal,
       pauseProgress,
       now_ms,
-      activePoint: activePointDraw,
+      activeTimeDraw,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on

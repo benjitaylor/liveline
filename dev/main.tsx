@@ -151,7 +151,7 @@ function Demo() {
 
   return (
     <div style={{
-      padding: 32, maxWidth: 960, margin: '0 auto',
+      padding: 32, maxWidth: 1200, margin: '0 auto',
       color: isDark ? '#fff' : '#111',
       background: pageBg,
       minHeight: '100vh',
@@ -347,8 +347,8 @@ function Demo() {
       {/* Multi-series demo */}
       <MultiSeriesDemo theme={theme} />
 
-      {/* Active point demo */}
-      <ActivePointDemo theme={theme} />
+      {/* Synced charts demo */}
+      <SyncedChartsDemo theme={theme} />
     </div>
   )
 }
@@ -551,72 +551,104 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
   )
 }
 
-// ─── Active Point Demo ─────────────────────────────────────────
+// ─── Synced Charts Demo ──────────────────────────────────────
 
-function ActivePointDemo({ theme }: { theme: 'dark' | 'light' }) {
+function SyncedChartsDemo({ theme }: { theme: 'dark' | 'light' }) {
   const POINT_COUNT = 200
-  const WINDOW_SECS = 30
+  const WINDOW_SECS = 60
 
-  // Fixed sine dataset — deterministic, paused
-  const dataset = React.useMemo(() => {
+  // Three deterministic datasets sharing the same time axis
+  const datasets = React.useMemo(() => {
     const now = Date.now() / 1000
-    const pts: LivelinePoint[] = []
-    for (let i = 0; i < POINT_COUNT; i++) {
-      const t = now - (POINT_COUNT - 1 - i) * (WINDOW_SECS / POINT_COUNT)
-      pts.push({ time: t, value: 100 + Math.sin(i * 0.08) * 15 + Math.sin(i * 0.03) * 8 })
+    const times = Array.from({ length: POINT_COUNT }, (_, i) =>
+      now - (POINT_COUNT - 1 - i) * (WINDOW_SECS / POINT_COUNT),
+    )
+    return {
+      tvl: times.map((t, i) => ({ time: t, value: 500 + Math.sin(i * 0.05) * 200 + Math.cos(i * 0.02) * 100 })),
+      apy: times.map((t, i) => ({ time: t, value: 5 + Math.sin(i * 0.08) * 3 + Math.cos(i * 0.03) * 1.5 })),
+      price: times.map((t, i) => ({ time: t, value: 1.0 + Math.sin(i * 0.04) * 0.05 + i * 0.0002 })),
     }
-    return pts
   }, [])
 
-  const lastValue = dataset[dataset.length - 1].value
-  const [pointIndex, setPointIndex] = useState(Math.floor(POINT_COUNT * 0.5))
+  const [syncTime, setSyncTime] = useState<number | null>(null)
 
-  const point = dataset[pointIndex]
-  const activePoint: [number, number] = [point.time, point.value]
+  const chartStyle: React.CSSProperties = {
+    height: 180,
+    background: 'var(--fg-02)',
+    borderRadius: 12,
+    border: '1px solid var(--fg-06)',
+    padding: 8,
+    overflow: 'hidden',
+  }
 
   return (
     <>
-      <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 4, borderBottom: 'none' }}>Active Point</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 4, borderBottom: 'none' }}>Synced Charts (activeTime)</h2>
       <p style={{ fontSize: 12, color: 'var(--fg-30)', marginBottom: 12 }}>
-        Programmatic crosshair on a paused chart
+        Hover on any chart to sync crosshairs across all three
       </p>
 
-      <Section label="Point">
-        <input
-          type="range"
-          min={0}
-          max={POINT_COUNT - 1}
-          value={pointIndex}
-          onChange={e => setPointIndex(Number(e.target.value))}
-          style={{ width: 200 }}
-        />
-        <span style={{ fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace', color: 'var(--fg-30)' }}>
-          idx {pointIndex} — value {point.value.toFixed(2)}
-        </span>
-      </Section>
-
-      <div style={{
-        height: 240,
-        background: 'var(--fg-02)',
-        borderRadius: 12,
-        border: '1px solid var(--fg-06)',
-        padding: 8,
-        overflow: 'hidden',
-        marginTop: 8,
-      }}>
-        <Liveline
-          data={dataset}
-          value={lastValue}
-          theme={theme}
-          window={WINDOW_SECS}
-          paused
-          activePoint={activePoint}
-          grid
-          fill
-          badge={false}
-          momentum={false}
-          scrub={false}
-        />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>TVL</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.tvl}
+              value={datasets.tvl[datasets.tvl.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#3b82f6"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => `$${v.toFixed(0)}M`}
+            />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>APY</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.apy}
+              value={datasets.apy[datasets.apy.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#f59e0b"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => `${v.toFixed(2)}%`}
+            />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>Share Price</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.price}
+              value={datasets.price[datasets.price.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#22c55e"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => v.toFixed(4)}
+            />
+          </div>
+        </div>
       </div>
     </>
   )
