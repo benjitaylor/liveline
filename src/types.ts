@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react'
+import type { Snippet } from 'svelte'
+import type { SvelteHTMLElements } from 'svelte/elements'
 
 export interface LivelinePoint {
   time: number  // unix seconds
@@ -54,7 +55,7 @@ export interface LivelineSeries {
   label?: string
 }
 
-export interface LivelineProps {
+export type LivelineProps = Omit<SvelteHTMLElements['div'], 'children'> & {
   data: LivelinePoint[]
   value: number
 
@@ -120,9 +121,12 @@ export interface LivelineProps {
   onModeChange?: (mode: 'line' | 'candle') => void  // Built-in toggle callback
   onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
   seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
+}
 
-  className?: string
-  style?: CSSProperties
+export type LivelineTransitionProps = Omit<SvelteHTMLElements['div'], 'children'> & {
+  active: string
+  duration?: number
+  children?: Snippet<[string]>
 }
 
 export interface CandlePoint {

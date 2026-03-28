@@ -1,10 +1,10 @@
 {
-  "name": "liveline",
-  "version": "0.0.7",
+  "name": "liveline-svelte",
+  "version": "0.0.1",
   "type": "module",
-  "description": "Real-time animated charts for React — line, candlestick, and multi-series modes",
+  "description": "Svelte fork of Liveline — real-time animated charts with line, candlestick, and multi-series modes",
   "keywords": [
-    "react",
+    "svelte",
     "chart",
     "canvas",
     "real-time",
@@ -16,32 +16,36 @@
     "multi-line"
   ],
   "license": "MIT",
-  "author": "Benji Taylor",
+  "author": "VastBlast",
+  "contributors": [
+    "Benji Taylor (original Liveline project)",
+    "VastBlast (Svelte fork and ongoing maintenance)"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/benjitaylor/liveline.git"
+    "url": "git+https://github.com/VastBlast/liveline-svelte.git"
   },
-  "homepage": "https://github.com/benjitaylor/liveline#readme",
-  "bugs": "https://github.com/benjitaylor/liveline/issues",
+  "homepage": "https://github.com/VastBlast/liveline-svelte#readme",
+  "bugs": "https://github.com/VastBlast/liveline-svelte/issues",
   "sideEffects": false,
-  "main": "dist/index.cjs",
-  "module": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "svelte": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
-    },
-    "./package.json": "./package.json"
+      "types": "./dist/index.d.ts",
+      "svelte": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist",
+    "!dist/**/*.test.*",
+    "!dist/**/*.spec.*",
+    "src",
+    "!src/**/*.test.*",
+    "!src/**/*.spec.*",
     "README.md",
     "LICENSE"
   ],
@@ -49,20 +53,24 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "svelte-package --input src --output dist",
+    "dev": "vite --config dev/vite.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "svelte-check --tsconfig tsconfig.json",
     "prepublishOnly": "pnpm build"
   },
   "peerDependencies": {
-    "react": ">=18"
+    "svelte": "^5.0.0"
   },
   "devDependencies": {
-    "@types/react": "^18.0.0",
-    "tsup": "^8.5.1",
+    "@types/node": "^22.15.30",
+    "@sveltejs/package": "^2.3.8",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "svelte": "^5.43.3",
+    "svelte-check": "^4.3.1",
     "typescript": "^5.0.0",
+    "vite": "^7.1.0",
     "vitest": "^4.0.18"
   }
 }

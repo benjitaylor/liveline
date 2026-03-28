@@ -1,4 +1,3 @@
-import { useRef, useEffect, useCallback } from 'react'
 import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
@@ -39,7 +38,7 @@ interface EngineConfig {
   tooltipY: number
   tooltipOutline: boolean
   valueMomentumColor: boolean
-  valueDisplayRef?: React.RefObject<HTMLSpanElement | null>
+  valueDisplayElement?: HTMLSpanElement | null
   orderbookData?: OrderbookData
   loading?: boolean
   paused?: boolean
@@ -76,6 +75,19 @@ interface BadgeEls {
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
+
+interface MutableRef<T> {
+  current: T
+}
+
+export interface LivelineEngineController {
+  update(config: EngineConfig): void
+  destroy(): void
+}
+
+function ref<T>(value: T): MutableRef<T> {
+  return { current: value }
+}
 
 // --- Constants ---
 const MAX_DELTA_MS = 50
@@ -557,226 +569,112 @@ function updateCandleWindowTransition(
   return { windowSecs: resultWindow, windowTransProgress }
 }
 
-export function useLivelineEngine(
-  canvasRef: React.RefObject<HTMLCanvasElement | null>,
-  containerRef: React.RefObject<HTMLDivElement | null>,
-  config: EngineConfig,
-) {
-  // Store config in refs to avoid re-creating the draw loop
-  const configRef = useRef(config)
-  configRef.current = config
+export function mountLivelineEngine(
+  canvas: HTMLCanvasElement,
+  container: HTMLDivElement,
+  initialConfig: EngineConfig,
+): LivelineEngineController {
+  const canvasRef = ref<HTMLCanvasElement | null>(canvas)
+  const containerRef = ref<HTMLDivElement | null>(container)
+  const configRef = ref(initialConfig)
+  const cleanups: Array<() => void> = []
+  let destroyed = false
 
   // Animation state (persistent across frames, no allocations)
-  const displayValueRef = useRef(config.value)
-  const displayValuesRef = useRef<Map<string, number>>(new Map())
-  const seriesAlphaRef = useRef<Map<string, number>>(new Map())
-  const displayMinRef = useRef(0)
-  const displayMaxRef = useRef(0)
-  const targetMinRef = useRef(0)
-  const targetMaxRef = useRef(0)
-  const rangeInitedRef = useRef(false)
-  const displayWindowRef = useRef(config.windowSecs)
-  const windowTransitionRef = useRef({
-    from: config.windowSecs, to: config.windowSecs, startMs: 0,
+  const displayValueRef = ref(initialConfig.value)
+  const displayValuesRef = ref<Map<string, number>>(new Map())
+  const seriesAlphaRef = ref<Map<string, number>>(new Map())
+  const displayMinRef = ref(0)
+  const displayMaxRef = ref(0)
+  const targetMinRef = ref(0)
+  const targetMaxRef = ref(0)
+  const rangeInitedRef = ref(false)
+  const displayWindowRef = ref(initialConfig.windowSecs)
+  const windowTransitionRef = ref({
+    from: initialConfig.windowSecs, to: initialConfig.windowSecs, startMs: 0,
     rangeFromMin: 0, rangeFromMax: 0, rangeToMin: 0, rangeToMax: 0,
   })
-  const arrowStateRef = useRef({ up: 0, down: 0 })
-  const gridStateRef = useRef({ interval: 0, labels: new Map<number, number>() }) // labels: key=Math.round(val*1000), value=alpha
-  const timeAxisStateRef = useRef({ labels: new Map<number, { alpha: number; text: string }>() })
-  const orderbookStateRef = useRef(createOrderbookState())
-  const particleStateRef = useRef(createParticleState())
-  const shakeStateRef = useRef(createShakeState())
-  const badgeColorRef = useRef({ green: 1 })
-  const badgeYRef = useRef<number | null>(null) // lerped badge Y, null = uninited
-  const reducedMotionRef = useRef(false)
-  const sizeRef = useRef({ w: 0, h: 0 })
-  const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
-  const rafRef = useRef(0)
-  const lastFrameRef = useRef(0)
+  const arrowStateRef = ref({ up: 0, down: 0 })
+  const gridStateRef = ref({ interval: 0, labels: new Map<number, number>() }) // labels: key=Math.round(val*1000), value=alpha
+  const timeAxisStateRef = ref({ labels: new Map<number, { alpha: number; text: string }>() })
+  const orderbookStateRef = ref(createOrderbookState())
+  const particleStateRef = ref(createParticleState())
+  const shakeStateRef = ref(createShakeState())
+  const badgeColorRef = ref({ green: 1 })
+  const badgeYRef = ref<number | null>(null) // lerped badge Y, null = uninited
+  const reducedMotionRef = ref(false)
+  const sizeRef = ref({ w: 0, h: 0 })
+  const ctxRef = ref<CanvasRenderingContext2D | null>(null)
+  const rafRef = ref(0)
+  const lastFrameRef = ref(0)
 
   // Badge DOM element refs
-  const badgeRef = useRef<BadgeEls | null>(null)
+  const badgeRef = ref<BadgeEls | null>(null)
 
   // Hover state
-  const hoverXRef = useRef<number | null>(null)
-  const scrubAmountRef = useRef(0) // 0 = not scrubbing, 1 = fully scrubbing
-  const lastHoverRef = useRef<{ x: number; value: number; time: number } | null>(null)
-  const lastHoverEntriesRef = useRef<{ color: string; label: string; value: number }[]>([])
+  const hoverXRef = ref<number | null>(null)
+  const scrubAmountRef = ref(0) // 0 = not scrubbing, 1 = fully scrubbing
+  const lastHoverRef = ref<{ x: number; value: number; time: number } | null>(null)
+  const lastHoverEntriesRef = ref<{ color: string; label: string; value: number }[]>([])
 
   // Reveal state (loading → chart morph)
-  const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
+  const chartRevealRef = ref(0) // 0 = loading/empty, 1 = fully revealed
 
   // Pause state
-  const pauseProgressRef = useRef(0) // 0 = playing, 1 = fully paused
-  const timeDebtRef = useRef(0) // accumulated seconds behind real time
+  const pauseProgressRef = ref(0) // 0 = playing, 1 = fully paused
+  const timeDebtRef = ref(0) // accumulated seconds behind real time
 
   // Data stash for reverse morph (chart → flat line when data disappears)
-  const lastDataRef = useRef<LivelinePoint[]>([])
-  const lastMultiSeriesRef = useRef<Array<{ id: string; data: LivelinePoint[]; value: number; palette: LivelinePalette; label?: string }>>([])
-  const frozenNowRef = useRef(0)
+  const lastDataRef = ref<LivelinePoint[]>([])
+  const lastMultiSeriesRef = ref<Array<{ id: string; data: LivelinePoint[]; value: number; palette: LivelinePalette; label?: string }>>([])
+  const frozenNowRef = ref(0)
 
   // Pause data snapshot — freeze visible data when pausing to prevent
   // consumer-side pruning from eroding the left edge of the line
-  const pausedDataRef = useRef<LivelinePoint[] | null>(null)
-  const pausedMultiDataRef = useRef<Map<string, { data: LivelinePoint[]; value: number }> | null>(null)
+  const pausedDataRef = ref<LivelinePoint[] | null>(null)
+  const pausedMultiDataRef = ref<Map<string, { data: LivelinePoint[]; value: number }> | null>(null)
 
   // Loading ↔ empty crossfade
-  const loadingAlphaRef = useRef(config.loading ? 1 : 0)
+  const loadingAlphaRef = ref(initialConfig.loading ? 1 : 0)
 
   // --- Candle mode refs (only used when mode='candle') ---
-  const displayCandleRef = useRef<CandlePoint | null>(null)
-  const liveBirthAlphaRef = useRef(1)
-  const liveBullRef = useRef(0.5)
-  const lineSmoothCloseRef = useRef(0)
-  const lineSmoothInitedRef = useRef(false)
-  const closeLineSmoothRef = useRef(0)         // smooth close for dashed line — never resets on candle birth
-  const closeLineSmoothInitedRef = useRef(false)
-  const lineModeProgRef = useRef(0)
-  const lineModeTransRef = useRef({ startMs: 0, from: 0, to: 0 })
-  const lineDensityProgRef = useRef(0)
-  const lineDensityTransRef = useRef({ startMs: 0, from: 0, to: 0 })
-  const lineTickSmoothRef = useRef(0)
-  const lineTickSmoothInitedRef = useRef(false)
-  const candleWidthTransRef = useRef({
-    fromWidth: config.candleWidth ?? 1,
-    toWidth: config.candleWidth ?? 1,
+  const displayCandleRef = ref<CandlePoint | null>(null)
+  const liveBirthAlphaRef = ref(1)
+  const liveBullRef = ref(0.5)
+  const lineSmoothCloseRef = ref(0)
+  const lineSmoothInitedRef = ref(false)
+  const closeLineSmoothRef = ref(0)         // smooth close for dashed line — never resets on candle birth
+  const closeLineSmoothInitedRef = ref(false)
+  const lineModeProgRef = ref(0)
+  const lineModeTransRef = ref({ startMs: 0, from: 0, to: 0 })
+  const lineDensityProgRef = ref(0)
+  const lineDensityTransRef = ref({ startMs: 0, from: 0, to: 0 })
+  const lineTickSmoothRef = ref(0)
+  const lineTickSmoothInitedRef = ref(false)
+  const candleWidthTransRef = ref({
+    fromWidth: initialConfig.candleWidth ?? 1,
+    toWidth: initialConfig.candleWidth ?? 1,
     startMs: 0,
     rangeFromMin: 0, rangeFromMax: 0,
     rangeToMin: 0, rangeToMax: 0,
     oldCandles: [] as CandlePoint[],
-    oldWidth: config.candleWidth ?? 1,
+    oldWidth: initialConfig.candleWidth ?? 1,
   })
-  const prevCandleDataRef = useRef({ candles: [] as CandlePoint[], width: config.candleWidth ?? 1 })
-  const pausedCandlesRef = useRef<CandlePoint[] | null>(null)
-  const pausedLiveRef = useRef<CandlePoint | null>(null)
-  const pausedLineDataRef = useRef<LivelinePoint[] | null>(null)
-  const pausedLineValueRef = useRef<number | null>(null)
-  const lastCandlesRef = useRef<CandlePoint[]>([])
-  const lastLiveRef = useRef<CandlePoint | null>(null)
-  const lastLineDataStashRef = useRef<LivelinePoint[]>([])
-  const lastLineValueStashRef = useRef<number | undefined>(undefined)
+  const prevCandleDataRef = ref({ candles: [] as CandlePoint[], width: initialConfig.candleWidth ?? 1 })
+  const pausedCandlesRef = ref<CandlePoint[] | null>(null)
+  const pausedLiveRef = ref<CandlePoint | null>(null)
+  const pausedLineDataRef = ref<LivelinePoint[] | null>(null)
+  const pausedLineValueRef = ref<number | null>(null)
+  const lastCandlesRef = ref<CandlePoint[]>([])
+  const lastLiveRef = ref<CandlePoint | null>(null)
+  const lastLineDataStashRef = ref<LivelinePoint[]>([])
+  const lastLineValueStashRef = ref<number | undefined>(undefined)
 
-  // Create badge DOM elements (once, appended to container)
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const el = document.createElement('div')
-    el.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;will-change:transform;display:none;z-index:1;'
-
-    const svg = document.createElementNS(SVG_NS, 'svg')
-    svg.style.cssText = 'position:absolute;top:0;left:0;'
-
-    const path = document.createElementNS(SVG_NS, 'path')
-    svg.appendChild(path)
-
-    const text = document.createElement('span')
-    text.style.cssText = 'position:relative;display:block;color:#fff;white-space:nowrap;'
-
-    el.appendChild(svg)
-    el.appendChild(text)
-    container.appendChild(el)
-
-    badgeRef.current = { container: el, svg, path, text, displayW: 0, targetW: 0 }
-
-    return () => {
-      container.removeChild(el)
-      badgeRef.current = null
+  const draw = () => {
+    if (destroyed) {
+      rafRef.current = 0
+      return
     }
-  }, [containerRef])
-
-  // ResizeObserver — update size ref without layout thrashing
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const ro = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (!entry) return
-      const { width, height } = entry.contentRect
-      sizeRef.current = { w: width, h: height }
-    })
-
-    ro.observe(container)
-    // Init size
-    const rect = container.getBoundingClientRect()
-    sizeRef.current = { w: rect.width, h: rect.height }
-
-    return () => ro.disconnect()
-  }, [containerRef])
-
-  // Mouse + touch events for hover/scrub
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const onMove = (e: MouseEvent) => {
-      if (!configRef.current.scrub) return
-      const rect = container.getBoundingClientRect()
-      hoverXRef.current = e.clientX - rect.left
-    }
-    const onLeave = () => {
-      hoverXRef.current = null
-      configRef.current.onHover?.(null)
-    }
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (!configRef.current.scrub) return
-      if (e.touches.length !== 1) return
-      const rect = container.getBoundingClientRect()
-      hoverXRef.current = e.touches[0].clientX - rect.left
-    }
-    const onTouchMove = (e: TouchEvent) => {
-      if (!configRef.current.scrub) return
-      if (e.touches.length !== 1) return
-      e.preventDefault() // prevent scroll while scrubbing
-      const rect = container.getBoundingClientRect()
-      hoverXRef.current = e.touches[0].clientX - rect.left
-    }
-    const onTouchEnd = () => {
-      hoverXRef.current = null
-      configRef.current.onHover?.(null)
-    }
-
-    container.addEventListener('mousemove', onMove)
-    container.addEventListener('mouseleave', onLeave)
-    container.addEventListener('touchstart', onTouchStart, { passive: true })
-    container.addEventListener('touchmove', onTouchMove, { passive: false })
-    container.addEventListener('touchend', onTouchEnd)
-    container.addEventListener('touchcancel', onTouchEnd)
-    return () => {
-      container.removeEventListener('mousemove', onMove)
-      container.removeEventListener('mouseleave', onLeave)
-      container.removeEventListener('touchstart', onTouchStart)
-      container.removeEventListener('touchmove', onTouchMove)
-      container.removeEventListener('touchend', onTouchEnd)
-      container.removeEventListener('touchcancel', onTouchEnd)
-    }
-  }, [containerRef])
-
-  // Reduced motion detection
-  useEffect(() => {
-    const mql = window.matchMedia('(prefers-reduced-motion: reduce)')
-    reducedMotionRef.current = mql.matches
-    const onChange = (e: MediaQueryListEvent) => { reducedMotionRef.current = e.matches }
-    mql.addEventListener('change', onChange)
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-
-  // Pause/resume on visibility change (don't spin rAF when tab is hidden)
-  useEffect(() => {
-    const onVisibility = () => {
-      if (!document.hidden && !rafRef.current) {
-        rafRef.current = requestAnimationFrame(draw)
-      }
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => document.removeEventListener('visibilitychange', onVisibility)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- draw is identity-stable (useCallback dep is a ref)
-  }, [])
-
-  // rAF draw loop
-  const draw = useCallback(() => {
     if (document.hidden) {
       rafRef.current = 0
       return  // stop the loop; visibilitychange listener will restart it
@@ -1891,8 +1789,8 @@ export function useLivelineEngine(
       }
     }
 
-    // --- Live value display (DOM element, updated by ref — no React re-renders) ---
-    const valEl = cfg.valueDisplayRef?.current
+    // --- Live value display (DOM element, updated imperatively to avoid template churn) ---
+    const valEl = cfg.valueDisplayElement
     if (valEl) {
       // When momentum colour is on, strip sign — colour already communicates direction
       const displayVal = cfg.valueMomentumColor ? Math.abs(smoothValue) : smoothValue
@@ -1906,12 +1804,117 @@ export function useLivelineEngine(
 
     } // end else (line mode)
 
-    rafRef.current = requestAnimationFrame(draw)
-  }, [canvasRef])
+    if (!destroyed) {
+      rafRef.current = requestAnimationFrame(draw)
+    }
+  }
 
-  // Start/stop loop
-  useEffect(() => {
-    rafRef.current = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [draw])
+  const badgeEl = document.createElement('div')
+  badgeEl.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;will-change:transform;display:none;z-index:1;'
+
+  const badgeSvg = document.createElementNS(SVG_NS, 'svg')
+  badgeSvg.style.cssText = 'position:absolute;top:0;left:0;'
+
+  const badgePath = document.createElementNS(SVG_NS, 'path')
+  badgeSvg.appendChild(badgePath)
+
+  const badgeText = document.createElement('span')
+  badgeText.style.cssText = 'position:relative;display:block;color:#fff;white-space:nowrap;'
+
+  badgeEl.appendChild(badgeSvg)
+  badgeEl.appendChild(badgeText)
+  container.appendChild(badgeEl)
+  badgeRef.current = { container: badgeEl, svg: badgeSvg, path: badgePath, text: badgeText, displayW: 0, targetW: 0 }
+  cleanups.push(() => {
+    if (badgeEl.parentNode === container) container.removeChild(badgeEl)
+    badgeRef.current = null
+  })
+
+  const resizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0]
+    if (!entry) return
+    const { width, height } = entry.contentRect
+    sizeRef.current = { w: width, h: height }
+  })
+  resizeObserver.observe(container)
+  const containerRect = container.getBoundingClientRect()
+  sizeRef.current = { w: containerRect.width, h: containerRect.height }
+  cleanups.push(() => resizeObserver.disconnect())
+
+  const onMove = (event: MouseEvent) => {
+    if (!configRef.current.scrub) return
+    const rect = container.getBoundingClientRect()
+    hoverXRef.current = event.clientX - rect.left
+  }
+  const onLeave = () => {
+    hoverXRef.current = null
+    configRef.current.onHover?.(null)
+  }
+  const onTouchStart = (event: TouchEvent) => {
+    if (!configRef.current.scrub || event.touches.length !== 1) return
+    const rect = container.getBoundingClientRect()
+    hoverXRef.current = event.touches[0].clientX - rect.left
+  }
+  const onTouchMove = (event: TouchEvent) => {
+    if (!configRef.current.scrub || event.touches.length !== 1) return
+    event.preventDefault()
+    const rect = container.getBoundingClientRect()
+    hoverXRef.current = event.touches[0].clientX - rect.left
+  }
+  const onTouchEnd = () => {
+    hoverXRef.current = null
+    configRef.current.onHover?.(null)
+  }
+
+  container.addEventListener('mousemove', onMove)
+  container.addEventListener('mouseleave', onLeave)
+  container.addEventListener('touchstart', onTouchStart, { passive: true })
+  container.addEventListener('touchmove', onTouchMove, { passive: false })
+  container.addEventListener('touchend', onTouchEnd)
+  container.addEventListener('touchcancel', onTouchEnd)
+  cleanups.push(() => {
+    container.removeEventListener('mousemove', onMove)
+    container.removeEventListener('mouseleave', onLeave)
+    container.removeEventListener('touchstart', onTouchStart)
+    container.removeEventListener('touchmove', onTouchMove)
+    container.removeEventListener('touchend', onTouchEnd)
+    container.removeEventListener('touchcancel', onTouchEnd)
+  })
+
+  const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)')
+  reducedMotionRef.current = mediaQuery.matches
+  const onReducedMotionChange = (event: MediaQueryListEvent) => {
+    reducedMotionRef.current = event.matches
+  }
+  mediaQuery.addEventListener('change', onReducedMotionChange)
+  cleanups.push(() => mediaQuery.removeEventListener('change', onReducedMotionChange))
+
+  const onVisibilityChange = () => {
+    if (!document.hidden && !rafRef.current && !destroyed) {
+      rafRef.current = requestAnimationFrame(draw)
+    }
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  cleanups.push(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+
+  rafRef.current = requestAnimationFrame(draw)
+  cleanups.push(() => cancelAnimationFrame(rafRef.current))
+
+  return {
+    update(nextConfig) {
+      configRef.current = nextConfig
+    },
+    destroy() {
+      if (destroyed) return
+      destroyed = true
+      configRef.current.onHover?.(null)
+      hoverXRef.current = null
+      for (let i = cleanups.length - 1; i >= 0; i--) {
+        cleanups[i]()
+      }
+      if (badgeRef.current) {
+        badgeRef.current.container.style.display = 'none'
+      }
+    },
+  }
 }

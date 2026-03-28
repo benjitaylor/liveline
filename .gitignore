@@ -1,5 +1,8 @@
 node_modules/
 dist/
+.pnpm-store/
+.svelte-kit/
+dev-dist/
 *.log
 .DS_Store
 *.tsbuildinfo

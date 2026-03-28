@@ -1,8 +1,8 @@
-export { Liveline } from './Liveline'
-export { LivelineTransition } from './LivelineTransition'
+export { default as Liveline } from './Liveline.svelte'
+export { default as LivelineTransition } from './LivelineTransition.svelte'
 export type { CandlePoint } from './types'
-export type { LivelineTransitionProps } from './LivelineTransition'
 export type {
+  LivelineTransitionProps,
   LivelineProps,
   LivelinePoint,
   LivelineSeries,

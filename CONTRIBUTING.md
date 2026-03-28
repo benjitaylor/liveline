@@ -1,6 +1,8 @@
-# Contributing to Liveline
+# Contributing to liveline-svelte
 
 Thanks for your interest in contributing!
+
+This repository is the Svelte fork maintained by VastBlast and based on the original Liveline project by Benji Taylor.
 
 ## Before You Start
 
@@ -23,7 +25,7 @@ Open an issue first, especially for larger changes. It helps talk through the ap
 
 - Match existing patterns
 - Keep PRs focused (one change per PR)
-- No external runtime dependencies beyond React
+- No external runtime dependencies beyond Svelte
 
 ## Questions?
 
