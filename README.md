@@ -1,8 +1,6 @@
 # liveline-svelte
 
-`liveline-svelte` is a standalone Svelte fork of the original `Liveline` project by Benji Taylor, maintained by VastBlast.
-
-[GitHub](https://github.com/VastBlast/liveline-svelte)
+`liveline-svelte` is a standalone Svelte fork of the original [liveline](https://github.com/benjitaylor/liveline) project by Benji Taylor, maintained by VastBlast.
 
 Real-time animated charts for Svelte. Line, multi-series, and candlestick modes, canvas-rendered, 60fps, no CSS imports.
 
