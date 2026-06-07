@@ -64,6 +64,11 @@ interface EngineConfig {
   }>
   isMultiSeries?: boolean
   hiddenSeriesIds?: Set<string>
+
+  // Line style
+  angular?: boolean
+  dotFill?: boolean
+  dashLine?: boolean
 }
 
 interface BadgeEls {
@@ -1862,6 +1867,10 @@ export function useLivelineEngine(
       chartReveal,
       pauseProgress,
       now_ms,
+      curveStyle: (cfg.angular || cfg.dotFill)
+        ? { angular: cfg.angular, dotFill: cfg.dotFill }
+        : undefined,
+      skipDashLine: cfg.dashLine === false,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on

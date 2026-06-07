@@ -121,6 +121,11 @@ export interface LivelineProps {
   onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
   seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
 
+  // Line style
+  angular?: boolean       // Draw straight line segments instead of spline curves (default: false)
+  dotFill?: boolean       // Use a dotted pattern fill instead of a gradient fill (default: false)
+  dashLine?: boolean      // Show dashed horizontal line at the current value (default: true)
+
   className?: string
   style?: CSSProperties
 }

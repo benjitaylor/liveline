@@ -59,6 +59,9 @@ export function Liveline({
   onSeriesToggle,
   seriesToggleCompact = false,
   lineWidth,
+  angular,
+  dotFill,
+  dashLine = true,
   className,
   style,
 }: LivelineProps) {
@@ -221,6 +224,9 @@ export function Liveline({
     multiSeries,
     isMultiSeries,
     hiddenSeriesIds: hiddenSeries,
+    angular,
+    dotFill,
+    dashLine,
   })
 
   const cursorStyle = scrub ? cursor : 'default'
