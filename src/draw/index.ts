@@ -1,4 +1,4 @@
-import type { LivelinePalette, ChartLayout, LivelinePoint, Momentum, ReferenceLine, OrderbookData, DegenOptions, CandlePoint } from '../types'
+import type { LivelinePalette, ChartLayout, LivelinePoint, Momentum, ReferenceLine, OrderbookData, DegenOptions, CandlePoint, BarPoint } from '../types'
 import { drawGrid, type GridState } from './grid'
 import { drawLine } from './line'
 import { drawDot, drawArrows, drawSimpleDot, drawMultiDot } from './dot'
@@ -10,6 +10,7 @@ import { drawOrderbook, type OrderbookState } from './orderbook'
 import { drawParticles, spawnOnSwing, type ParticleState } from './particles'
 import { drawCandlesticks, drawClosePrice, drawCandleCrosshair, drawLineModeCrosshair } from './candlestick'
 import { drawEmpty } from './empty'
+import { drawBars, type BarLayout } from './bars'
 
 // Constants
 const SHAKE_DECAY_RATE = 0.002
@@ -60,6 +61,13 @@ export interface DrawOptions {
   chartReveal: number       // 0 = loading/morphing from center, 1 = fully revealed
   pauseProgress: number     // 0 = playing, 1 = fully paused
   now_ms: number            // performance.now() for breathing animation timing
+  // Bar chart
+  bars?: BarPoint[]
+  barWidthSecs?: number
+  barMode?: 'default' | 'overlay'
+  barFillColor?: string
+  barLayout?: BarLayout
+  barShowLabels?: boolean
 }
 
 /**
@@ -125,6 +133,26 @@ export function drawFrame(
     ctx.restore()
   }
 
+  // 2c. Bars — overlay mode (behind line)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'overlay' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.1, 0.6) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
+      ctx.restore()
+    }
+  }
+
   // 3. Line + fill (with scrub dimming + reveal morphing)
   const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
   const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
@@ -188,6 +216,29 @@ export function drawFrame(
         shake.amplitude = (3 + opts.swingMagnitude * 4) * burstIntensity
       }
       drawParticles(ctx, opts.particleState, opts.dt)
+    }
+  }
+
+  // 6b. Bars — default mode (separate bottom strip)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'default' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(layout.pad.left, opts.barLayout.bottom - opts.barLayout.maxHeight, layout.chartW, opts.barLayout.maxHeight)
+      ctx.clip()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
+      ctx.restore()
     }
   }
 
@@ -451,6 +502,13 @@ export interface CandleDrawOptions {
   emptyText?: string
   loadingAlpha: number
   showEmptyOverlay: boolean  // true only when collapsing to empty (not loading, not forward morph)
+  // Bar chart
+  bars?: BarPoint[]
+  barWidthSecs?: number
+  barMode?: 'default' | 'overlay'
+  barFillColor?: string
+  barLayout?: BarLayout
+  barShowLabels?: boolean
 }
 
 /**
@@ -496,6 +554,26 @@ export function drawCandleFrame(
     if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
     drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
     ctx.restore()
+  }
+
+  // 1b. Bars — overlay mode (behind line + candles)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'overlay' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.1, 0.6) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
+      ctx.restore()
+    }
   }
 
   // 2. Line — morph line that transforms from loading squiggly into data.
@@ -599,6 +677,29 @@ export function drawCandleFrame(
       )
     }
     ctx.restore()
+  }
+
+  // 4b. Bars — default mode (separate bottom strip)
+  if (opts.bars && opts.barLayout && opts.barWidthSecs && opts.barMode === 'default' && opts.barFillColor) {
+    const barAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (barAlpha > 0.01) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(pad.left, opts.barLayout.bottom - opts.barLayout.maxHeight, chartW, opts.barLayout.maxHeight)
+      ctx.clip()
+      if (barAlpha < 1) ctx.globalAlpha = barAlpha
+      drawBars(ctx, layout, opts.barLayout, {
+        bars: opts.bars,
+        barWidthSecs: opts.barWidthSecs,
+        fillColor: opts.barFillColor,
+        labelColor: palette.gridLabel,
+        scrubX: opts.scrubAmount > 0.05 ? opts.hoverX : null,
+        scrubAmount: opts.scrubAmount,
+        revealProgress: reveal < 1 ? revealRamp(0.1, 0.8) : 1,
+        showLabels: opts.barShowLabels ?? false,
+      })
+      ctx.restore()
+    }
   }
 
   // 5. Live dot — position from drawLine's returned pts (same as drawFrame).
