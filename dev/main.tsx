@@ -151,7 +151,7 @@ function Demo() {
 
   return (
     <div style={{
-      padding: 32, maxWidth: 960, margin: '0 auto',
+      padding: 32, maxWidth: 1200, margin: '0 auto',
       color: isDark ? '#fff' : '#111',
       background: pageBg,
       minHeight: '100vh',
@@ -346,6 +346,9 @@ function Demo() {
 
       {/* Multi-series demo */}
       <MultiSeriesDemo theme={theme} />
+
+      {/* Synced charts demo */}
+      <SyncedChartsDemo theme={theme} />
     </div>
   )
 }
@@ -543,6 +546,109 @@ function MultiSeriesDemo({ theme }: { theme: 'dark' | 'light' }) {
         <span>paused: {String(paused)}</span>
         <span>window: {windowSecs}s</span>
         <span>points: {series[0]?.data.length ?? 0}</span>
+      </div>
+    </>
+  )
+}
+
+// ─── Synced Charts Demo ──────────────────────────────────────
+
+function SyncedChartsDemo({ theme }: { theme: 'dark' | 'light' }) {
+  const POINT_COUNT = 200
+  const WINDOW_SECS = 60
+
+  // Three deterministic datasets sharing the same time axis
+  const datasets = React.useMemo(() => {
+    const now = Date.now() / 1000
+    const times = Array.from({ length: POINT_COUNT }, (_, i) =>
+      now - (POINT_COUNT - 1 - i) * (WINDOW_SECS / POINT_COUNT),
+    )
+    return {
+      tvl: times.map((t, i) => ({ time: t, value: 500 + Math.sin(i * 0.05) * 200 + Math.cos(i * 0.02) * 100 })),
+      apy: times.map((t, i) => ({ time: t, value: 5 + Math.sin(i * 0.08) * 3 + Math.cos(i * 0.03) * 1.5 })),
+      price: times.map((t, i) => ({ time: t, value: 1.0 + Math.sin(i * 0.04) * 0.05 + i * 0.0002 })),
+    }
+  }, [])
+
+  const [syncTime, setSyncTime] = useState<number | null>(null)
+
+  const chartStyle: React.CSSProperties = {
+    height: 180,
+    background: 'var(--fg-02)',
+    borderRadius: 12,
+    border: '1px solid var(--fg-06)',
+    padding: 8,
+    overflow: 'hidden',
+  }
+
+  return (
+    <>
+      <h2 style={{ fontSize: 16, fontWeight: 600, marginTop: 40, marginBottom: 4, borderBottom: 'none' }}>Synced Charts (activeTime)</h2>
+      <p style={{ fontSize: 12, color: 'var(--fg-30)', marginBottom: 12 }}>
+        Hover on any chart to sync crosshairs across all three
+      </p>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>TVL</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.tvl}
+              value={datasets.tvl[datasets.tvl.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#3b82f6"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => `$${v.toFixed(0)}M`}
+            />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>APY</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.apy}
+              value={datasets.apy[datasets.apy.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#f59e0b"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => `${v.toFixed(2)}%`}
+            />
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 4, color: 'var(--fg-50)' }}>Share Price</div>
+          <div style={chartStyle}>
+            <Liveline
+              data={datasets.price}
+              value={datasets.price[datasets.price.length - 1].value}
+              theme={theme}
+              window={WINDOW_SECS}
+              paused
+              grid
+              fill
+              badge={false}
+              momentum={false}
+              color="#22c55e"
+              onHover={p => setSyncTime(p?.time ?? null)}
+              activeTime={syncTime ?? undefined}
+              formatValue={v => v.toFixed(4)}
+            />
+          </div>
+        </div>
       </div>
     </>
   )
