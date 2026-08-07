@@ -424,7 +424,10 @@ function computeCandleRange(
   if (!isFinite(min) || !isFinite(max)) return { min: 99, max: 101 }
   const range = max - min
   const margin = range * 0.12
-  const minRange = range * 0.1 || 0.4
+  // Same floor semantics as computeRange: do not use `||` (skips floor for
+  // tiny nonzero spans). Absolute floor only when span is zero / non-finite.
+  const relativeMin = range * 0.1
+  const minRange = range > 0 && Number.isFinite(range) ? relativeMin : 0.4
   if (range < minRange) {
     const mid = (min + max) / 2
     return { min: mid - minRange / 2, max: mid + minRange / 2 }
