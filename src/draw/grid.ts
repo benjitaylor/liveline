@@ -4,14 +4,19 @@ import { lerp } from '../math/lerp'
 /**
  * Pick a nice interval using TradingView's cycling divisor approach.
  * Hysteresis: once chosen, sticks until spacing falls outside [0.5×, 4×] of minGap.
+ *
+ * Exported for unit tests — not part of the public package API.
  */
-function pickInterval(
+export function pickInterval(
   valRange: number,
   pxPerUnit: number,
   minGap: number,
   prev: number,
 ): number {
-  if (prev > 0) {
+  if (!(valRange > 0) || !(pxPerUnit > 0) || !Number.isFinite(valRange) || !Number.isFinite(pxPerUnit)) {
+    return Number.isFinite(valRange) && valRange > 0 ? valRange / 5 : 1
+  }
+  if (prev > 0 && Number.isFinite(prev)) {
     const px = prev * pxPerUnit
     if (px >= minGap * 0.5 && px <= minGap * 4) return prev
   }
@@ -20,14 +25,19 @@ function pickInterval(
   let best = Infinity
   for (const divs of divisorSets) {
     let span = Math.pow(10, Math.ceil(Math.log10(valRange)))
+    if (!(span > 0) || !Number.isFinite(span)) continue
     let i = 0
     while (span / divs[i % 3] * pxPerUnit >= minGap) {
-      span /= divs[i % 3]
+      const next = span / divs[i % 3]
+      // Guard non-progressing shrink (denormal / zero) so this cannot hang.
+      if (!(next < span) || !(next > 0)) break
+      span = next
       i++
+      if (i > 1e4) break
     }
     if (span < best) best = span
   }
-  return best === Infinity ? valRange / 5 : best
+  return best === Infinity || !(best > 0) ? valRange / 5 : best
 }
 
 /** Float-safe divisibility check. */
@@ -64,6 +74,8 @@ export function drawGrid(
 
   // Fine interval: fills the gaps between coarse labels
   const fine = coarse / 2
+  // Guard denormal steps: `val += fine` with fine≈0 or fine < ulp(val) freezes the tab.
+  if (!(fine > 0) || !Number.isFinite(fine)) return
   const finePx = fine * pxPerUnit
 
   // Target alpha for fine labels — hide when cramped, fade in with space
@@ -81,7 +93,11 @@ export function drawGrid(
   // --- Phase 1: compute target alpha for every current grid label ---
   const targets = new Map<number, number>()
   const first = Math.ceil(minVal / fine) * fine
+  if (!Number.isFinite(first)) return
+  let gridIters = 0
   for (let val = first; val <= maxVal; val += fine) {
+    const next = val + fine
+    if (!(next > val) || ++gridIters > 4096) break
     const y = toY(val)
     if (y < pad.top - 2 || y > h - pad.bottom + 2) continue
     const isCoarse = divisible(val, coarse)
