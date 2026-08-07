@@ -69,6 +69,21 @@ describe('computeRange', () => {
     const mid = (min + max) / 2
     expect(mid).toBeCloseTo(50, 1)
   })
+
+  it('uses absolute floor only for zero-span data', () => {
+    const { min, max } = computeRange(pts([10, 10]), 10)
+    expect(max - min).toBeCloseTo(0.4)
+  })
+
+  it('does not force absolute floor for tiny nonzero spans', () => {
+    // Forcing 0.4 for every tiny span over-pads micro volatility into a
+    // flat-looking chart. Keep relative domain + margin; grid guards (#19)
+    // prevent hangs when the step size is denormal.
+    const rawRange = 1e-8
+    const { min, max } = computeRange(pts([9, 9 + rawRange]), 9)
+    expect(max - min).toBeCloseTo(rawRange * (1 + 2 * 0.12), 12)
+    expect(max - min).toBeLessThan(0.4)
+  })
 })
 
 // -- detectMomentum --

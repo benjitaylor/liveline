@@ -29,7 +29,14 @@ export function computeRange(
 
   const rawRange = targetMax - targetMin
   const marginFactor = exaggerate ? 0.01 : 0.12
-  const minRange = rawRange * (exaggerate ? 0.02 : 0.1) || (exaggerate ? 0.04 : 0.4)
+  // `rawRange * k || floor` skipped the absolute floor for any tiny nonzero
+  // span (JS || only falls through on 0/falsy), which produced denormal Y
+  // domains and could freeze the Y-grid loop. Apply the floor only when the
+  // span is zero / non-finite; keep relative min for real nonzero ranges.
+  const relativeMin = rawRange * (exaggerate ? 0.02 : 0.1)
+  const absoluteFloor = exaggerate ? 0.04 : 0.4
+  const minRange =
+    rawRange > 0 && Number.isFinite(rawRange) ? relativeMin : absoluteFloor
 
   if (rawRange < minRange) {
     const mid = (targetMin + targetMax) / 2
