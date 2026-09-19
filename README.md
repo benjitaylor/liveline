@@ -135,6 +135,7 @@ When `loading` flips to `false` with data present, the loading line morphs into 
 | `formatTime` | `(t: number) => string` | `HH:MM:SS` | Time axis formatter |
 | `lerpSpeed` | `number` | `0.08` | Interpolation speed (0–1) |
 | `padding` | `Padding` | `{ top: 12, right: auto, bottom: 28, left: 12 }` | Chart padding override (`right` is 80/54/12 based on badge/grid) |
+| `labelPadding` | `number` | `padding.right` | Px from the right edge for the value-axis labels — set this to keep labels in place while `padding.right` moves the plotted line/badge/crosshair independently |
 | `onHover` | `(point \| null) => void` | — | Hover callback with `{ time, value, x, y }` |
 | `cursor` | `string` | `'crosshair'` | CSS cursor on canvas hover |
 | `className` | `string` | — | Container class |

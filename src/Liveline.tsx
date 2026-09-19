@@ -45,6 +45,7 @@ export function Liveline({
   formatTime = defaultFormatTime,
   lerpSpeed = 0.08,
   padding: paddingOverride,
+  labelPadding,
   onHover,
   cursor = 'crosshair',
   pulse = true,
@@ -113,6 +114,7 @@ export function Liveline({
     right: paddingOverride?.right ?? defaultRight,
     bottom: paddingOverride?.bottom ?? 28,
     left: paddingOverride?.left ?? 12,
+    labelRight: labelPadding ?? paddingOverride?.right ?? defaultRight,
   }
 
   // Degen mode: explicit prop wins
