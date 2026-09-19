@@ -29,6 +29,12 @@ export interface Padding {
   left?: number
 }
 
+/** Resolved padding after defaults are applied, plus the axis-label offset. */
+export interface ResolvedPadding extends Required<Padding> {
+  /** Px from the right edge where the value-axis labels are drawn — defaults to `right`. */
+  labelRight: number
+}
+
 export interface WindowOption {
   label: string
   secs: number
@@ -104,6 +110,7 @@ export interface LivelineProps {
   formatTime?: (t: number) => string
   lerpSpeed?: number
   padding?: Padding
+  labelPadding?: number   // Px from the right edge for the value-axis labels — overrides padding.right for just the labels (default: padding.right)
   onHover?: (point: HoverPoint | null) => void
   cursor?: string          // CSS cursor on hover (default: 'crosshair')
   pulse?: boolean          // Pulsing ring on live dot (default: true)
@@ -188,7 +195,7 @@ export interface LivelinePalette {
 export interface ChartLayout {
   w: number
   h: number
-  pad: Required<Padding>
+  pad: ResolvedPadding
   chartW: number
   chartH: number
   leftEdge: number

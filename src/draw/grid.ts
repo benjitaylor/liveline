@@ -134,7 +134,7 @@ export function drawGrid(
     ctx.stroke()
 
     ctx.fillStyle = palette.gridLabel
-    ctx.fillText(formatValue(val), w - pad.right + 8, y + 4)
+    ctx.fillText(formatValue(val), w - pad.labelRight + 8, y + 4)
 
     ctx.restore()
   }

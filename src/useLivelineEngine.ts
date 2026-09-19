@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react'
-import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
+import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, ResolvedPadding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
@@ -28,7 +28,7 @@ interface EngineConfig {
   referenceLine?: ReferenceLine
   formatValue: (v: number) => string
   formatTime: (t: number) => string
-  padding: Required<Padding>
+  padding: ResolvedPadding
   onHover?: (point: HoverPoint | null) => void
   showPulse: boolean
   scrub: boolean
@@ -245,7 +245,7 @@ function updateRange(
 /** Compute hover position, interpolated value, and scrub amount. */
 function updateHoverState(
   hoverPixelX: number | null,
-  pad: Required<Padding>,
+  pad: ResolvedPadding,
   w: number,
   layout: ChartLayout,
   now: number,
