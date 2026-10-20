@@ -38,6 +38,7 @@ export interface DrawOptions {
   showPulse: boolean
   showFill: boolean
   referenceLine?: ReferenceLine
+  showValueLine: boolean
   hoverX: number | null
   hoverValue: number | null
   hoverTime: number | null
@@ -127,7 +128,7 @@ export function drawFrame(
 
   // 3. Line + fill (with scrub dimming + reveal morphing)
   const scrubX = opts.scrubAmount > 0.05 ? opts.hoverX : null
-  const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms)
+  const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms, 1, !opts.showValueLine)
 
   // 4. Time axis — same timing as grid
   {
@@ -246,6 +247,7 @@ export interface MultiSeriesDrawOptions {
   showGrid: boolean
   showPulse: boolean
   referenceLine?: ReferenceLine
+  showValueLine: boolean
   hoverX: number | null
   hoverTime: number | null
   hoverEntries: MultiSeriesHoverEntry[]
@@ -321,6 +323,7 @@ export function drawMultiFrame(
       false, // no fill
       scrubX, opts.scrubAmount,
       reveal, opts.now_ms,
+      1, !opts.showValueLine,
     )
     ctx.restore()
     if (pts && pts.length > 0) {

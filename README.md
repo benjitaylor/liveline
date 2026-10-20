@@ -131,6 +131,7 @@ When `loading` flips to `false` with data present, the loading line morphs into 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
 | `referenceLine` | `ReferenceLine` | — | Horizontal reference line `{ value, label? }` |
+| `valueLine` | `boolean` | `true` | Dashed horizontal line at the live value |
 | `formatValue` | `(v: number) => string` | `v.toFixed(2)` | Value label formatter |
 | `formatTime` | `(t: number) => string` | `HH:MM:SS` | Time axis formatter |
 | `lerpSpeed` | `number` | `0.08` | Interpolation speed (0–1) |

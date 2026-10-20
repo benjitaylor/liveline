@@ -100,6 +100,7 @@ export interface LivelineProps {
 
   // Optional
   referenceLine?: ReferenceLine
+  valueLine?: boolean      // Dashed horizontal line at the live value (default: true)
   formatValue?: (v: number) => string
   formatTime?: (t: number) => string
   lerpSpeed?: number
